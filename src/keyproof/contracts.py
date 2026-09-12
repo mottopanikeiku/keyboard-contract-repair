@@ -113,6 +113,7 @@ class RunRecord(Contract):
     initial_report: EvaluationReport | None = None
     iterations: list[Iteration] = Field(default_factory=list)
     final_report: EvaluationReport | None = None
+    holdout_report: EvaluationReport | None = None
     events: list[RunEvent] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
     weave: WeaveStatus = Field(default_factory=WeaveStatus)
