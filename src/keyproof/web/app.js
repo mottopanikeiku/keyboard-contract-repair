@@ -29,6 +29,7 @@
     libraryRefreshing: false,
     challengeAnnounced: "",
     starting: false,
+    learningBusy: false,
     connecting: false,
     refreshing: false,
     errors: new Map(),
@@ -148,7 +149,7 @@
   }
 
   function isBusy() {
-    return state.starting || state.connecting || state.pendingIds.size > 0 || Boolean(state.status?.busy) || active(state.challenge) || state.challenges.some(active) || Array.from(state.runs.values()).some(active);
+    return state.starting || state.learningBusy || state.connecting || state.pendingIds.size > 0 || Boolean(state.status?.busy) || active(state.challenge) || state.challenges.some(active) || Array.from(state.runs.values()).some(active);
   }
 
   function renderReadiness() {
@@ -193,6 +194,7 @@
     $("run-comparison").disabled = blocked;
     $("busy-status").textContent = !state.statusFresh ? "Connection unavailable" : isBusy() ? "Controller busy" : "Ready for a run";
     renderChallengeReadiness();
+    document.dispatchEvent(new Event("keyproof-readiness"));
   }
 
   function selectRun(id) {
@@ -341,7 +343,7 @@
       const meta = element("div", "event-meta");
       meta.append(element("span", "mono", `#${event.sequence}`), tag(event.role), element("span", "", human(event.kind)), element("time", "", dateText(event.timestamp)));
       item.append(meta, element("p", "event-summary", event.summary));
-      if (Object.keys(event.data || {}).length) item.append(dataDisclosure("Event data", event.data, `${run.run_id || run.challenge_id}:event:${event.sequence}`));
+      if (Object.keys(event.data || {}).length) item.append(dataDisclosure("Event data", event.data, `${run.run_id || run.challenge_id || run.learning_id}:event:${event.sequence}`));
       list.append(item);
     }
     return list;
@@ -1128,6 +1130,20 @@
     renderLibrary();
     $("recorded-title").tabIndex = -1;
     $("recorded-title").focus();
+  });
+  window.KeyproofUI = Object.freeze({
+    element, human, exact, tag, notice, dateText, disclosure, dataDisclosure, mount,
+    weaveLink, request, renderReport, errorList, renderUsage, renderDiff, renderTimeline, active,
+    readiness: () => ({ status: state.status, fresh: state.statusFresh, busy: isBusy() }),
+    setLearningBusy(value) {
+      state.learningBusy = Boolean(value);
+      renderReadiness();
+    },
+    refreshReadiness() {
+      state.statusFresh = false;
+      renderReadiness();
+      return refresh();
+    },
   });
   refresh();
   window.setInterval(() => refresh(), 1100);

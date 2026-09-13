@@ -15,6 +15,7 @@ from keyproof.telemetry import Telemetry, redact
 
 if TYPE_CHECKING:
     from keyproof.challenges import ChallengeRun
+    from keyproof.learning_contracts import LearningConfig, LearningRun
 
 
 class RunService:
@@ -194,6 +195,93 @@ class RunService:
         finally:
             record.finished_at = timestamp()
             self.store.save_challenge(record)
+
+    def submit_learning(self, config: "LearningConfig") -> "LearningRun":
+        from keyproof.learning import make_learning
+        from keyproof.learning_contracts import memory_digest
+
+        self.check_config(config)
+        model = config.model or os.environ.get("KEYPROOF_MODEL")
+        if config.provider == "openai":
+            model = model or os.environ.get("OPENAI_MODEL")
+        if not model:
+            raise ValueError("Learning experiments require an explicit model ID.")
+        config = config.model_copy(update={"model": model})
+        seed_memory = []
+        if config.memory_run_id is not None:
+            previous = self.store.get_learning(config.memory_run_id)
+            if (
+                previous.status != "completed"
+                or not previous.memory_frozen_at
+                or not previous.memory
+                or previous.memory_hash != memory_digest(previous.memory)
+            ):
+                raise ValueError("Memory must come from a completed, source-verified frozen run.")
+            seed_memory = previous.memory
+        record = make_learning(config, self.telemetry.status, seed_memory=seed_memory)
+        self.store.save_learning(record)
+        self._task = asyncio.create_task(self._execute_learning(record))
+        return record
+
+    async def _execute_learning(self, record: "LearningRun") -> None:
+        from keyproof.learning import run_learning
+
+        def on_update(snapshot: "LearningRun") -> None:
+            if snapshot.status == "completed" and self.telemetry.status.enabled:
+                snapshot = snapshot.model_copy(
+                    update={"status": "running", "verdict": "not_evaluated", "finished_at": None}
+                )
+            self.store.save_learning(snapshot)
+
+        try:
+            record = await run_learning(
+                record,
+                artifact_dir=self.store.learning_dir(record.learning_id) / "artifacts",
+                on_update=on_update,
+            )
+            if record.status == "completed" and self.telemetry.status.enabled:
+                verdict = record.verdict
+                record.status = "running"
+                record.verdict = "not_evaluated"
+                record.finished_at = None
+                record.events.append(
+                    RunEvent(
+                        sequence=len(record.events) + 1,
+                        role="weave",
+                        kind="evaluation_started",
+                        summary="Replaying frozen regression memory in a real Weave Evaluation.",
+                    )
+                )
+                self.store.save_learning(record)
+                delivery = await self.telemetry.evaluate_learning(record)
+                self.store._write(
+                    self.store.learning_dir(record.learning_id) / "weave-evaluation.json",
+                    delivery,
+                )
+                record.weave.evaluation_url = delivery["evaluation_url"]
+                record.events.append(
+                    RunEvent(
+                        sequence=len(record.events) + 1,
+                        role="weave",
+                        kind="evaluation_published",
+                        summary="Completed memory evaluation trace retrieved; delivery verified.",
+                        data={"url": delivery["evaluation_url"], "call_id": delivery["call_id"]},
+                    )
+                )
+                record.status = "completed"
+                record.verdict = verdict
+        except asyncio.CancelledError:
+            record.status = "failed"
+            record.verdict = "error"
+            record.errors.append("Learning cancelled; complete execution is not claimed.")
+            raise
+        except Exception as exc:
+            record.status = "failed"
+            record.verdict = "error"
+            record.errors.append(redact(f"{type(exc).__name__}: {str(exc)[:1500]}"))
+        finally:
+            record.finished_at = timestamp()
+            self.store.save_learning(record)
 
     async def wait(self) -> None:
         if self._task is not None:

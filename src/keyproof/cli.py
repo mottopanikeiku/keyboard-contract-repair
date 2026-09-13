@@ -54,11 +54,16 @@ def _parser() -> argparse.ArgumentParser:
     report.add_argument(
         "--output", type=Path, required=True, help="New output file; never overwritten"
     )
-    for name in ("run", "compare"):
-        command = commands.add_parser(
-            name, help="Run one repair" if name == "run" else "Run a matched team/single pair"
-        )
-        command.add_argument("--mode", choices=["team", "single"], default="team")
+    for name, help_text in (
+        ("run", "Run one repair"),
+        ("compare", "Run a matched team/single pair"),
+        ("learn", "Discover counterexamples and transfer executable regression memory"),
+    ):
+        command = commands.add_parser(name, help=help_text)
+        if name == "learn":
+            command.add_argument("--memory-run", help="Seed memory from a completed learning run")
+        else:
+            command.add_argument("--mode", choices=["team", "single"], default="team")
         command.add_argument("--provider", choices=["codex", "openai"], default="codex")
         command.add_argument(
             "--model", help="Explicit provider model ID (recommended for comparisons)"
@@ -201,6 +206,69 @@ async def _run(args) -> int:
         await service.close()
 
 
+async def _learn(args) -> int:
+    from keyproof.learning_contracts import LearningConfig
+    from keyproof.service import RunService
+    from keyproof.telemetry import Telemetry
+
+    telemetry = Telemetry()
+    if not args.local_only:
+        await telemetry.connect()
+    service = RunService(args.data_dir, telemetry)
+    try:
+        record = service.submit_learning(
+            LearningConfig(
+                provider=args.provider,
+                model=args.model,
+                max_iterations=args.iterations,
+                max_model_calls=args.max_calls,
+                max_input_tokens=args.max_input_tokens,
+                max_output_tokens=args.max_output_tokens,
+                require_weave=not args.local_only,
+                memory_run_id=args.memory_run,
+            )
+        )
+        print(f"Started learning run {record.learning_id}", file=sys.stderr, flush=True)
+        await service.wait()
+        record = service.store.get_learning(record.learning_id)
+        payload = (
+            record.model_dump(mode="json")
+            if args.json
+            else {
+                "learning_id": record.learning_id,
+                "status": record.status,
+                "verdict": record.verdict,
+                "verified_memory_entries": len(record.memory),
+                "memory_hash": record.memory_hash,
+                "memory_frozen_at": record.memory_frozen_at,
+                "cases": [
+                    {
+                        "case_id": case.case_id,
+                        "partition": case.partition,
+                        "status": case.status,
+                        "fixed_baseline_passed": bool(
+                            case.initial_development_report
+                            and case.initial_development_report.passed
+                            and case.initial_holdout_report
+                            and case.initial_holdout_report.passed
+                        ),
+                        "discoveries": len(case.discoveries),
+                        "repairs": len(case.repairs),
+                        "errors": case.errors,
+                    }
+                    for case in record.cases
+                ],
+                "usage": record.usage.model_dump(),
+                "weave": record.weave.model_dump(),
+                "errors": record.errors,
+            }
+        )
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0 if record.status == "completed" and record.verdict == "transfer_verified" else 1
+    finally:
+        await service.close()
+
+
 async def _check(args) -> int:
     from keyproof.oracle import evaluate_source, fixture_source
 
@@ -286,6 +354,8 @@ def main() -> None:
             code = asyncio.run(_login(args))
         elif args.command == "check":
             code = asyncio.run(_check(args))
+        elif args.command == "learn":
+            code = asyncio.run(_learn(args))
         elif args.command == "challenge":
             code = asyncio.run(_challenge(args))
         elif args.command == "report":

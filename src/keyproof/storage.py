@@ -12,6 +12,7 @@ from keyproof.contracts import EvaluationReport, RunRecord, timestamp
 
 if TYPE_CHECKING:
     from keyproof.challenges import ChallengeRun
+    from keyproof.learning_contracts import LearningRun
 
 _ID = re.compile(r"^[a-f0-9]{32}$")
 
@@ -51,9 +52,11 @@ class EvidenceStore:
         self.runs = self.root / "runs"
         self.comparisons = self.root / "comparisons"
         self.challenges = self.root / "challenges"
+        self.learning = self.root / "learning"
         self.runs.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.comparisons.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.challenges.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.learning.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     @staticmethod
     def validate_id(identifier: str) -> str:
@@ -150,6 +153,43 @@ class EvidenceStore:
         ]
         return sorted(records, key=lambda record: record.created_at, reverse=True)
 
+    def learning_dir(self, learning_id: str) -> Path:
+        return self.learning / self.validate_id(learning_id)
+
+    def save_learning(self, record: "LearningRun") -> None:
+        from keyproof.learning_contracts import PROBE_VERSION, memory_digest
+
+        root = self.learning_dir(record.learning_id)
+        self._write(root / "learning.json", record.model_dump(mode="json"))
+        self._write(
+            root / "memory.json",
+            {
+                "version": PROBE_VERSION,
+                "memory_hash": memory_digest(record.memory),
+                "frozen_at": record.memory_frozen_at,
+                "entries": [entry.model_dump(mode="json") for entry in record.memory],
+            },
+        )
+
+    def get_learning(self, learning_id: str) -> "LearningRun":
+        from keyproof.learning_contracts import LearningRun
+
+        return LearningRun.model_validate_json(
+            (self.learning_dir(learning_id) / "learning.json").read_text(encoding="utf-8")
+        )
+
+    def list_learning(self) -> list["LearningRun"]:
+        from keyproof.learning_contracts import LearningRun
+
+        return sorted(
+            (
+                LearningRun.model_validate_json(path.read_text(encoding="utf-8"))
+                for path in self.learning.glob("*/learning.json")
+            ),
+            key=lambda record: record.created_at,
+            reverse=True,
+        )
+
     def mark_interrupted(self) -> None:
         for record in self.list_runs():
             if record.status in {"queued", "running"}:
@@ -181,6 +221,20 @@ class EvidenceStore:
                     "Challenge interrupted before completion; no verdict is claimed."
                 )
                 self.save_challenge(record)
+        for record in self.list_learning():
+            if record.status in {"queued", "running"}:
+                record.status = "failed"
+                record.verdict = "error"
+                record.finished_at = timestamp()
+                record.usage.complete = False
+                record.usage.input_tokens = None
+                record.usage.output_tokens = None
+                record.usage.cached_input_tokens = None
+                record.errors.append(
+                    "Learning interrupted; memory witnesses remain retained, but completion "
+                    "and in-flight token usage are unknown."
+                )
+                self.save_learning(record)
 
 
 def default_data_dir() -> Path:

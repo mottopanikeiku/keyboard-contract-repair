@@ -399,6 +399,29 @@ class TaskBrowser:
             result["step"] = self._action_count
             return result
 
+    async def settle(self, milliseconds: int) -> dict[str, Any]:
+        """Advance a bounded virtual interval and observe the trusted persistence ledger."""
+        if self._session is None:
+            raise RuntimeError("TaskBrowser must be entered before settling")
+        if type(milliseconds) is not int or not 0 <= milliseconds <= _QUIET_WINDOW_MS:
+            raise ValueError("Settling requires 0–60000 virtual milliseconds")
+        async with asyncio.timeout(12):
+            await _settle(self._session, milliseconds)
+            result = await self.observe()
+            result["blocked"] = list(self._session.blocked)
+            return result
+
+    async def capture(self) -> str | None:
+        """Capture the current trusted browser surface when an artifact directory was supplied."""
+        if self._session is None:
+            raise RuntimeError("TaskBrowser must be entered before capturing")
+        if self.artifact_dir is None:
+            return None
+        self.artifact_dir.mkdir(parents=True, exist_ok=True)
+        path = self.artifact_dir / f"probe-{_source_hash(self.source)[:12]}.png"
+        await self._session.page.screenshot(path=str(path), full_page=True, timeout=5000)
+        return str(path)
+
 
 async def _semantics(session: _Session, *, modal: bool = False) -> dict[str, Any]:
     return await session.read(

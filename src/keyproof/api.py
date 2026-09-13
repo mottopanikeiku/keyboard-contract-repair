@@ -14,6 +14,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from keyproof.challenges import PresetId, challenge_catalog
 from keyproof.contracts import Contract, RunConfig
+from keyproof.learning_contracts import PROBE_VERSION, LearningConfig, memory_digest
 from keyproof.report import render_report
 from keyproof.service import RunService
 from keyproof.storage import default_data_dir, verified_capture_path
@@ -98,6 +99,14 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         except FileNotFoundError:
             raise HTTPException(404, "Challenge not found") from None
 
+    def get_learning(request: Request, learning_id: str):
+        try:
+            return service(request).store.get_learning(learning_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        except FileNotFoundError:
+            raise HTTPException(404, "Learning run not found") from None
+
     @app.get("/", response_class=HTMLResponse)
     async def dashboard():
         return FileResponse(WEB_DIR / "index.html")
@@ -172,6 +181,81 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
                 "Content-Disposition": f'attachment; filename="keyproof-{comparison_id}.html"'
             },
         )
+
+    @app.get("/api/learning")
+    async def learning_runs(request: Request):
+        from keyproof.learning import learning_catalog
+
+        return {
+            "catalog": learning_catalog(),
+            "runs": [
+                record.model_dump(mode="json") for record in service(request).store.list_learning()
+            ],
+        }
+
+    @app.post("/api/learning", status_code=202)
+    async def start_learning(config: LearningConfig, request: Request):
+        try:
+            return service(request).submit_learning(config).model_dump(mode="json")
+        except FileNotFoundError:
+            raise HTTPException(404, "The requested memory run does not exist") from None
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from None
+
+    @app.get("/api/learning/{learning_id}")
+    async def learning_run(learning_id: str, request: Request):
+        return get_learning(request, learning_id).model_dump(mode="json")
+
+    @app.get("/api/learning/{learning_id}/memory")
+    async def learning_memory(learning_id: str, request: Request):
+        record = get_learning(request, learning_id)
+        return JSONResponse(
+            {
+                "version": PROBE_VERSION,
+                "memory_hash": memory_digest(record.memory),
+                "frozen_at": record.memory_frozen_at,
+                "entries": [entry.model_dump(mode="json") for entry in record.memory],
+            },
+            headers={
+                "Content-Disposition": f'attachment; filename="keyproof-memory-{learning_id}.json"'
+            },
+        )
+
+    @app.get("/api/learning/{learning_id}/evidence")
+    async def learning_evidence(learning_id: str, request: Request):
+        return JSONResponse(
+            get_learning(request, learning_id).model_dump(mode="json"),
+            headers={
+                "Content-Disposition": f'attachment; filename="keyproof-learning-{learning_id}.json"'
+            },
+        )
+
+    @app.get("/api/learning/{learning_id}/captures/{case_id}/{variant}")
+    async def learning_capture(
+        learning_id: str,
+        case_id: str,
+        variant: Literal["before", "after"],
+        request: Request,
+    ):
+        record = get_learning(request, learning_id)
+        case = next((case for case in record.cases if case.case_id == case_id), None)
+        if case is None or (variant == "after" and case.frozen_at is None):
+            raise HTTPException(404, "No frozen case capture is available")
+        report = (
+            case.initial_development_report
+            if variant == "before"
+            else case.final_development_report
+        )
+        source = case.original_source if variant == "before" else case.final_source
+        path = verified_capture_path(
+            report,
+            source,
+            service(request).store.learning_dir(learning_id),
+            phase="development",
+        )
+        if path is None:
+            raise HTTPException(404, "No source-matched evaluator capture is available")
+        return FileResponse(path, media_type="image/png")
 
     @app.get("/api/challenges")
     async def challenges(request: Request):

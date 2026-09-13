@@ -12,6 +12,7 @@ from keyproof.contracts import RunRecord, WeaveStatus
 
 if TYPE_CHECKING:
     from keyproof.challenges import ChallengeRun
+    from keyproof.learning_contracts import LearningRun
 
 
 def redact(value: Any) -> Any:
@@ -212,6 +213,29 @@ class Telemetry:
 
     async def evaluate_challenge(self, record: "ChallengeRun") -> dict[str, Any]:
         return await self._verified_evaluation(execute_challenge_evaluation, record)
+
+    async def evaluate_learning(self, record: "LearningRun") -> dict[str, Any]:
+        from keyproof.learning_evaluation import execute_learning_evaluation
+
+        delivery = await self._verified_evaluation(execute_learning_evaluation, record)
+        for result in delivery["summary"]["evaluations"].values():
+            if not result["call_id"]:
+                raise RuntimeError("A Weave memory evaluation has no trace identifier")
+            retrieved = await asyncio.to_thread(self.client.get_call, result["call_id"])
+            if (
+                retrieved.id != result["call_id"]
+                or retrieved.ended_at is None
+                or retrieved.exception is not None
+            ):
+                raise RuntimeError("A child memory evaluation was not retrieved successfully")
+            result["evaluation_url"] = retrieved.ui_url
+        reference = delivery["summary"]["dataset_reference"]
+        if not reference:
+            raise RuntimeError("The learned Weave Dataset has no published version")
+        dataset = await asyncio.to_thread(weave.ref(reference).get)
+        if len(dataset.rows) != delivery["summary"]["dataset_rows"]:
+            raise RuntimeError("Retrieved learned Dataset has an unexpected row count")
+        return delivery
 
     async def _verified_evaluation(self, operation: Any, record: Any) -> dict[str, Any]:
         if not self.status.enabled:
