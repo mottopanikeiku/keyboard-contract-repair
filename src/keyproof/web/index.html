@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Inspect a bounded keyboard-contract repair, its independent gates, and the evidence behind each accepted change.">
+  <title>Keyproof — Keyboard Contract Repair</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to repair evidence</a>
+  <header class="masthead">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">K<span>↵</span></span><div><p class="eyebrow">CoreWeave Hacks / experimental workbench</p><h1>Keyproof<span class="title-divider"> / </span><span class="subtitle">Keyboard Contract Repair</span></h1></div></div>
+    <p class="scope-label">Bounded changes. Observable evidence.</p>
+  </header>
+  <main>
+    <section class="readiness" aria-label="Service readiness"><div><span class="status-dot" id="provider-dot" aria-hidden="true"></span><span id="provider-status">Checking model provider…</span></div><div><span class="status-dot" id="weave-dot" aria-hidden="true"></span><span id="weave-status">Checking Weave…</span><span id="status-weave-link"></span></div><span id="busy-status">Connecting</span></section>
+    <div id="request-errors" class="request-errors" role="alert" hidden><div id="request-error-messages"></div><button id="retry" type="button" class="button secondary small">Retry connection</button></div>
+    <div class="workbench">
+      <aside class="sidebar" aria-label="Run configuration and history">
+        <section class="panel setup"><div class="section-heading"><span class="eyebrow">01 / Configure</span><span class="tag">Owned fixture only</span></div><h2>Repair the interaction.</h2><p id="fixture-title" class="fixture-title">Loading fixture…</p><p id="fixture-task" class="muted">The task will appear when the server is available.</p>
+          <form id="run-form">
+            <fieldset><legend>Repair mode</legend><div class="mode-picker"><label><input type="radio" name="mode" value="team" checked><span>Team<span class="option-note">Specialized roles</span></span></label><label><input type="radio" name="mode" value="single"><span>Single<span class="option-note">One agent</span></span></label></div></fieldset>
+            <div class="field"><label for="provider">Model provider</label><select id="provider" name="provider"><option value="codex">Codex CLI</option><option value="openai">OpenAI API</option></select></div>
+            <div class="field"><label for="model">Model <span class="muted">/ optional for one run</span></label><input id="model" name="model" type="text" maxlength="120" placeholder="Model or server KEYPROOF_MODEL" autocomplete="off" spellcheck="false" aria-describedby="model-note"><p id="model-note" class="field-note">Comparisons require an explicit Model here or KEYPROOF_MODEL on the server. One provider serves all roles. No keys are entered here.</p></div>
+            <div class="field-row"><div class="field"><label for="max-iterations">Iterations</label><input id="max-iterations" name="max_iterations" type="number" min="1" max="5" step="1" value="3" required></div><div class="field"><label for="max-calls">Model calls</label><input id="max-calls" name="max_model_calls" type="number" min="2" max="30" step="1" value="12" required></div></div>
+            <details class="budget-details"><summary>Token budgets</summary><div class="field"><label for="max-output">Maximum output tokens</label><input id="max-output" name="max_output_tokens" type="number" min="500" max="16000" step="1" value="6000" required></div><div class="field"><label for="max-input">Maximum input tokens</label><input id="max-input" name="max_input_tokens" type="number" min="10000" max="1000000" step="1" value="180000" required></div></details>
+            <div id="local-choice" class="local-choice" hidden><label><input id="local-only" type="checkbox"><span>Allow an explicit local-only run</span></label><p>Weave is unavailable. Local-only runs are <strong>not sponsor-integrated</strong>; they do not produce a Weave trace.</p><p id="weave-error" class="field-note"></p></div>
+            <p id="run-blocker" class="field-note" aria-live="polite">Checking readiness before starting.</p>
+            <button id="run-repair" type="submit" class="button primary" disabled>Run repair <span aria-hidden="true">↗</span></button>
+            <button id="run-comparison" type="button" class="button secondary" disabled>Run fair comparison</button>
+            <p class="field-note comparison-note">Comparison runs team and single with matched budgets, freezes both candidates, then evaluates heldout checks. One pair is not evidence of general superiority.</p>
+          </form>
+        </section>
+        <section class="panel history-panel"><div class="section-heading"><h2>Run history</h2><span id="history-count" class="tag">—</span></div><div id="history"><p class="muted">Loading retained runs…</p></div></section>
+        <p class="scope-note"><strong>Scope, not a compliance claim.</strong> A synthetic, owned fixture and a keyboard-task proxy. Not WCAG compliance, not an accessibility audit of the web, and not validation with disabled users.</p>
+      </aside>
+      <div id="workspace" class="workspace" tabindex="-1">
+        <section class="panel overview"><div class="section-heading"><span class="eyebrow">02 / Inspect</span><span id="selection-status" class="tag">Waiting for evidence</span></div><div id="run-overview"><h2>The verdict follows the evidence.</h2><p class="muted">No runs yet. Choose a mode and start a repair, or inspect a retained run when one is available.</p><div class="empty-process" aria-label="Repair process"><span>Observe</span><span aria-hidden="true">→</span><span>Propose</span><span aria-hidden="true">→</span><span>Evaluate</span><span aria-hidden="true">→</span><span>Keep or revert</span></div></div></section>
+        <section id="comparison-panel" class="panel" aria-labelledby="comparison-title" hidden><div class="section-heading"><span class="eyebrow">Paired experiment</span><button id="close-comparison" class="text-button" type="button">Hide comparison</button></div><h2 id="comparison-title">Team vs. single</h2><div id="comparison-content"></div></section>
+        <div id="run-evidence" hidden>
+          <section class="panel"><div class="section-heading"><h2>Contract gates</h2><span class="tag">Authoritative evaluator</span></div><p class="muted panel-intro">Development feedback can guide repair. Heldout feedback is revealed only after the candidate is frozen.</p><div id="reports"></div></section>
+          <div class="evidence-columns"><section class="panel"><div class="section-heading"><h2>Event ledger</h2><span id="event-count" class="tag">—</span></div><p class="field-note">Provider and role activity, exactly as reported.</p><div id="timeline"></div></section><section class="panel"><div class="section-heading"><h2>Exact usage</h2><span class="tag">Reported, not estimated</span></div><div id="usage"></div></section></div>
+          <section class="panel"><div class="section-heading"><h2>Repair decisions & source diff</h2><span class="tag">behavior.js only</span></div><p class="muted panel-intro">A proposal is not a repair until its gates allow it. Rejected candidates remain visible.</p><div id="iterations"></div><details class="source-disclosure"><summary>Inspect recorded source snapshots</summary><h3>Original behavior.js</h3><pre id="original-source" class="source"></pre><h3 id="final-source-title">Recorded behavior.js / freeze not verified</h3><pre id="final-source" class="source"></pre></details></section>
+        </div>
+        <section class="panel previews" aria-labelledby="previews-title">
+          <div class="section-heading"><h2 id="previews-title">Evaluator screenshot evidence</h2><span class="tag">PNG / non-interactive</span></div>
+          <p id="preview-explanation" class="muted panel-intro">These are real isolated-browser captures retained by the evaluator, not interactive pages. Candidate code never runs in this dashboard. A screenshot shows appearance at capture time, not keyboard behavior or a verdict; use the gates and action evidence above.</p>
+          <div class="preview-grid">
+            <div><h3>Original fixture</h3><p id="original-preview-empty" class="preview-empty" role="status">No original capture is available. Select a run with evaluator evidence.</p><img id="original-preview" class="preview-image" alt="Original keyboard-task fixture captured by the isolated evaluator" aria-describedby="preview-explanation" hidden><a id="original-preview-link" class="preview-link" target="_blank" rel="noopener noreferrer" hidden>Open full-size original PNG (new tab)</a></div>
+            <div><h3>Frozen final candidate</h3><p id="final-preview-empty" class="preview-empty" role="status">No frozen final capture is available. Select a completed evaluation.</p><img id="final-preview" class="preview-image" alt="Frozen final keyboard-task candidate captured by the isolated evaluator" aria-describedby="preview-explanation" hidden><a id="final-preview-link" class="preview-link" target="_blank" rel="noopener noreferrer" hidden>Open full-size final PNG (new tab)</a></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <footer><span>Keyproof / Keyboard Contract Repair</span><span>Model suggestions are untrusted. Gates decide.</span></footer>
+  <div id="announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+  <noscript><p class="noscript">JavaScript is required to connect this workbench to the repair API.</p></noscript>
+</body>
+</html>
