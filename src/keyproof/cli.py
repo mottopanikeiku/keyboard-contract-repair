@@ -19,13 +19,15 @@ def _parser() -> argparse.ArgumentParser:
         description="Repair owned keyboard tasks; verify behavior independently. Not a WCAG certificate.",
         epilog=(
             "Linux with bubblewrap required. Setup: uv sync; uv run playwright install chromium; "
-            "codex login; uv run wandb login. "
+            "codex login; uv run keyproof login. "
             "Set KEYPROOF_WEAVE_PROJECT=team/project to select a Weave project. "
             "API provider: KEYPROOF_API_KEY, KEYPROOF_BASE_URL, KEYPROOF_MODEL. "
             "No keys belong in source control."
         ),
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    login = commands.add_parser("login", help="Store W&B login securely and verify a real trace")
+    login.add_argument("--relogin", action="store_true", help="Prompt for a replacement W&B key")
     serve = commands.add_parser("serve", help="Launch the local evidence dashboard")
     serve.add_argument("--host", choices=["127.0.0.1", "localhost", "::1"], default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
@@ -244,6 +246,30 @@ def _report(args) -> int:
     return 0
 
 
+async def _login(args) -> int:
+    from weave.compat import wandb
+    from weave.wandb_interface.auth import get_wandb_credentials
+
+    from keyproof.telemetry import Telemetry
+
+    if args.relogin or get_wandb_credentials() is None:
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                "Run `keyproof login` in an interactive terminal; never pass a key as an argument."
+            )
+        print(f"W&B SDK login for Linux home {Path.home()}. Input is hidden.", file=sys.stderr)
+        configured = await asyncio.to_thread(wandb.login, relogin=args.relogin)
+        if not configured:
+            raise RuntimeError("W&B login was not completed.")
+    telemetry = Telemetry()
+    try:
+        status = await telemetry.connect()
+        print(status.model_dump_json(indent=2))
+        return 0 if status.enabled else 1
+    finally:
+        await telemetry.close()
+
+
 def main() -> None:
     args = _parser().parse_args()
     try:
@@ -256,6 +282,8 @@ def main() -> None:
             return
         if args.command == "doctor":
             code = asyncio.run(_doctor(args.local_only))
+        elif args.command == "login":
+            code = asyncio.run(_login(args))
         elif args.command == "check":
             code = asyncio.run(_check(args))
         elif args.command == "challenge":

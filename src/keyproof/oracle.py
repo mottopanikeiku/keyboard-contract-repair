@@ -168,7 +168,11 @@ async def _launch_chromium(playwright: Playwright) -> Browser:
             "#!/bin/sh\nexec "
             + shlex.quote(bubblewrap)
             + " --die-with-parent --unshare-net --ro-bind / / --dev /dev"
-            + " --proc /proc --tmpfs /tmp -- "
+            + " --proc /proc --tmpfs /tmp --clearenv"
+            + " --setenv PATH /usr/local/bin:/usr/bin:/bin"
+            + " --setenv HOME /tmp/keyproof-home"
+            + " --setenv XDG_CONFIG_HOME /tmp/keyproof-config"
+            + " --setenv XDG_CACHE_HOME /tmp/keyproof-cache -- "
             + shlex.quote(str(executable))
             + ' "$@"\n',
             encoding="utf-8",

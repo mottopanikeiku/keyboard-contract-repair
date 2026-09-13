@@ -2,11 +2,11 @@
 
 import asyncio
 import os
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 import weave
+from weave.wandb_interface.auth import get_wandb_credentials
 
 from keyproof.contracts import RunRecord, WeaveStatus
 
@@ -142,14 +142,10 @@ async def execute_challenge_evaluation(record: "ChallengeRun") -> dict[str, Any]
 class Telemetry:
     def __init__(self) -> None:
         self.client: Any = None
-        self.status = WeaveStatus(error="W&B is not connected. Run `uv run wandb login` first.")
+        self.status = WeaveStatus(error="W&B is not connected. Run `uv run keyproof login` first.")
 
     async def connect(self) -> WeaveStatus:
         if self.status.enabled:
-            return self.status
-        # Inspect existence only. The official SDK owns authentication and credential access.
-        has_credentials = bool(os.environ.get("WANDB_API_KEY")) or (Path.home() / ".netrc").exists()
-        if not has_credentials:
             return self.status
         return await asyncio.to_thread(self._connect)
 
@@ -157,6 +153,16 @@ class Telemetry:
         project = os.environ.get("KEYPROOF_WEAVE_PROJECT", "keyproof")
         os.environ.setdefault("WANDB_HTTP_TIMEOUT", "15")
         try:
+            if get_wandb_credentials() is None:
+                self.status = WeaveStatus(
+                    project=project,
+                    error=(
+                        "No W&B credentials are visible to this process. Run `uv run keyproof login` "
+                        "under the same Linux account, then reconnect. A key exported in another "
+                        "terminal is not inherited by this server."
+                    ),
+                )
+                return self.status
             self.client = weave.init(
                 project,
                 settings={
