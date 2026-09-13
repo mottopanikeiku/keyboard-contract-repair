@@ -170,6 +170,36 @@ class EvidenceStore:
                 "entries": [entry.model_dump(mode="json") for entry in record.memory],
             },
         )
+        self._save_learning_summary(record)
+
+    def _save_learning_summary(self, record: "LearningRun") -> None:
+        root = self.learning_dir(record.learning_id)
+        summary = record.model_dump(
+            mode="json",
+            include={
+                "learning_id",
+                "status",
+                "verdict",
+                "created_at",
+                "finished_at",
+                "memory_hash",
+                "memory_frozen_at",
+            },
+        )
+        summary["memory_count"] = len(record.memory)
+        summary["revision"] = str((root / "learning.json").stat().st_mtime_ns)
+        self._write(root / "summary.json", summary)
+
+    def list_learning_summaries(self) -> list[dict[str, Any]]:
+        """Poll tiny derived metadata, never deserialize browser traces on every refresh."""
+        return sorted(
+            (
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in self.learning.glob("*/summary.json")
+            ),
+            key=lambda summary: summary["created_at"],
+            reverse=True,
+        )
 
     def get_learning(self, learning_id: str) -> "LearningRun":
         from keyproof.learning_contracts import LearningRun
@@ -235,6 +265,9 @@ class EvidenceStore:
                     "and in-flight token usage are unknown."
                 )
                 self.save_learning(record)
+            else:
+                # Rebuild derived metadata after interrupted writes or a schema upgrade.
+                self._save_learning_summary(record)
 
 
 def default_data_dir() -> Path:

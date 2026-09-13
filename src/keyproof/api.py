@@ -137,12 +137,14 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(409, str(exc)) from None
 
     @app.get("/api/runs")
-    async def runs(request: Request):
-        return {
-            "runs": [
-                record.model_dump(mode="json") for record in service(request).store.list_runs()
-            ]
-        }
+    def runs(request: Request):
+        return JSONResponse(
+            {
+                "runs": [
+                    record.model_dump(mode="json") for record in service(request).store.list_runs()
+                ]
+            }
+        )
 
     @app.post("/api/runs", status_code=202)
     async def start_run(config: RunConfig, request: Request):
@@ -152,8 +154,8 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(409, str(exc)) from None
 
     @app.get("/api/runs/{run_id}")
-    async def run(run_id: str, request: Request):
-        return get_record(request, run_id).model_dump(mode="json")
+    def run(run_id: str, request: Request):
+        return JSONResponse(get_record(request, run_id).model_dump(mode="json"))
 
     @app.get("/api/comparisons")
     async def comparisons(request: Request):
@@ -168,11 +170,11 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(409, str(exc)) from None
 
     @app.get("/api/comparisons/{comparison_id}")
-    async def comparison(comparison_id: str, request: Request):
-        return get_comparison(request, comparison_id)
+    def comparison(comparison_id: str, request: Request):
+        return JSONResponse(get_comparison(request, comparison_id))
 
     @app.get("/api/comparisons/{comparison_id}/report", response_class=HTMLResponse)
-    async def comparison_report(comparison_id: str, request: Request):
+    def comparison_report(comparison_id: str, request: Request):
         result = get_comparison(request, comparison_id)
         captures = service(request).store.comparison_screenshots(result)
         return HTMLResponse(
@@ -183,14 +185,12 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         )
 
     @app.get("/api/learning")
-    async def learning_runs(request: Request):
+    def learning_runs(request: Request):
         from keyproof.learning import learning_catalog
 
         return {
             "catalog": learning_catalog(),
-            "runs": [
-                record.model_dump(mode="json") for record in service(request).store.list_learning()
-            ],
+            "runs": service(request).store.list_learning_summaries(),
         }
 
     @app.post("/api/learning", status_code=202)
@@ -203,11 +203,11 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(409, str(exc)) from None
 
     @app.get("/api/learning/{learning_id}")
-    async def learning_run(learning_id: str, request: Request):
-        return get_learning(request, learning_id).model_dump(mode="json")
+    def learning_run(learning_id: str, request: Request):
+        return JSONResponse(get_learning(request, learning_id).model_dump(mode="json"))
 
     @app.get("/api/learning/{learning_id}/memory")
-    async def learning_memory(learning_id: str, request: Request):
+    def learning_memory(learning_id: str, request: Request):
         record = get_learning(request, learning_id)
         return JSONResponse(
             {
@@ -222,7 +222,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         )
 
     @app.get("/api/learning/{learning_id}/evidence")
-    async def learning_evidence(learning_id: str, request: Request):
+    def learning_evidence(learning_id: str, request: Request):
         return JSONResponse(
             get_learning(request, learning_id).model_dump(mode="json"),
             headers={
@@ -231,7 +231,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         )
 
     @app.get("/api/learning/{learning_id}/captures/{case_id}/{variant}")
-    async def learning_capture(
+    def learning_capture(
         learning_id: str,
         case_id: str,
         variant: Literal["before", "after"],

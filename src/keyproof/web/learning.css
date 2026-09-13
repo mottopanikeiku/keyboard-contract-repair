@@ -33,7 +33,7 @@
 .learning-evidence pre{max-width:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal}
 .learning-evidence .diff{white-space:pre;overflow-wrap:normal}
 .learning-evidence .source{max-height:330px}
-.learning-evidence .tag{white-space:normal;overflow-wrap:anywhere}
+.learning-evidence .tag{white-space:nowrap;flex-shrink:0}
 .learning-evidence .table-scroll{max-width:100%;overflow:auto}
 .learning-evidence .gate-table{min-width:440px}
 .learning-downloads{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:18px 0}

@@ -56,6 +56,23 @@ async def execute_learning_evaluation(record: LearningRun) -> dict[str, Any]:
         or any(not case.frozen_at or not case.final_source for case in record.cases)
     ):
         raise ValueError("Learning evaluation requires frozen memory and frozen case sources")
+    for case in record.cases:
+        if case.original_source_hash != hashlib.sha256(case.original_source.encode()).hexdigest():
+            raise ValueError("The untouched case source changed after its recorded evaluation")
+        for source, phase, report in (
+            (case.original_source, "development", case.initial_development_report),
+            (case.original_source, "holdout", case.initial_holdout_report),
+            (case.final_source, "development", case.final_development_report),
+            (case.final_source, "holdout", case.final_holdout_report),
+        ):
+            if (
+                report is None
+                or report.phase != phase
+                or report.source_hash != hashlib.sha256(source.encode()).hexdigest()
+            ):
+                raise ValueError(
+                    "A frozen case source does not match its recorded fixed-suite evidence"
+                )
     rows = [
         {"case_id": case.case_id, "probe": entry.plan.model_dump(mode="json")}
         for case in record.cases
@@ -94,7 +111,7 @@ async def execute_learning_evaluation(record: LearningRun) -> dict[str, Any]:
             variant=variant,
             memory_hash=record.memory_hash,
         )
-        summary, call = await evaluation.evaluate.call(model=model)
+        summary, call = await evaluation.evaluate.call(evaluation, model=model)
         actual_pairs = {(case_id, report.probe_hash) for case_id, report in model._reports}
         if len(model._reports) != len(rows) or actual_pairs != expected_pairs:
             raise RuntimeError("Weave did not execute every frozen memory row exactly once")

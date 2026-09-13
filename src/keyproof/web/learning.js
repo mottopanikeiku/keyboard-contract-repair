@@ -6,13 +6,14 @@
   const $ = (id) => document.getElementById(id);
   const requested = new URL(location.href).searchParams.get("learning");
   const state = {
-    runs: new Map(), selected: /^[a-f0-9]{32}$/.test(requested || "") ? requested : null,
+    runs: new Map(), summaries: new Map(), revisions: new Map(),
+    selected: /^[a-f0-9]{32}$/.test(requested || "") ? requested : null,
     catalog: [], loaded: false, refreshing: false, starting: false, uncertain: false,
     error: "", announced: "", selectedError: "",
   };
   const endpoint = (id) => `/api/learning/${encodeURIComponent(id)}`;
   const counterexample = (report) => report?.passed === false && report.errors?.length === 0 && report.gates?.some((gate) => gate.passed === false);
-  const eligible = (run) => run.status === "completed" && run.memory_frozen_at && run.memory_hash && run.memory?.length;
+  const eligible = (run) => run.status === "completed" && run.memory_frozen_at && run.memory_hash && run.memory_count > 0;
   const orderedFreeze = (run) => {
     const frozen = Date.parse(run.memory_frozen_at);
     const revealed = Date.parse(run.transfer_source_revealed_at);
@@ -41,7 +42,7 @@
   }
 
   function syncBusy() {
-    ui.setLearningBusy(state.starting || state.uncertain || [...state.runs.values()].some(active));
+    ui.setLearningBusy(state.starting || state.uncertain || [...state.summaries.values()].some(active));
   }
 
   function connection() {
@@ -62,8 +63,8 @@
   }
 
   function renderHistory() {
-    const runs = [...state.runs.values()].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-    mount("learning-history", [state.selected, state.loaded, runs.map((run) => [run.learning_id, run.status, run.verdict, run.memory.length, run.created_at])], () => {
+    const runs = [...state.summaries.values()].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    mount("learning-history", [state.selected, state.loaded, runs.map((run) => [run.learning_id, run.status, run.verdict, run.memory_count, run.created_at])], () => {
       const list = el("div", "learning-history-list");
       if (!runs.length) list.append(el("p", "muted", state.loaded ? "No retained learning runs. No discovered failure or transfer result is claimed." : "Loading retained learning evidence…"));
       for (const run of runs) {
@@ -72,7 +73,7 @@
         button.dataset.focusKey = `learning:${run.learning_id}`;
         button.setAttribute("aria-pressed", String(run.learning_id === state.selected));
         button.append(el("strong", "", `${active(run) ? "Current execution" : "Recorded"} / ${human(run.status)}`),
-          el("span", "", human(run.verdict)), el("small", "", `${dateText(run.created_at)} · ${run.memory.length} memory entries`),
+          el("span", "", human(run.verdict)), el("small", "", `${dateText(run.created_at)} · ${run.memory_count} memory entries`),
           el("span", "mono field-note", run.learning_id), el("span", "recording-action", "Open evidence / no model calls"));
         button.addEventListener("click", () => select(run.learning_id));
         list.append(button);
@@ -87,7 +88,7 @@
       empty.value = "";
       fragment.append(empty);
       seeds.forEach((run) => {
-        const option = el("option", "", `${dateText(run.created_at)} · ${run.memory.length} entries · ${run.learning_id.slice(0, 8)}`);
+        const option = el("option", "", `${dateText(run.created_at)} · ${run.memory_count} entries · ${run.learning_id.slice(0, 8)}`);
         option.value = run.learning_id;
         fragment.append(option);
       });
@@ -106,10 +107,10 @@
       const hits = run ? transferHits(run).length : 0;
       const stages = [
         ["01 / Fixed suite green?", baselines.length ? `${green} / ${baselines.length} recorded suites pass` : "Not evaluated", baselines.length && green === baselines.length],
-        ["02 / Challenger proposal", proposals ? `${proposals} evaluated model proposals` : "No evaluated proposal", false],
-        ["03 / Independent replays", run?.memory.length ? `${run.memory.length} server-admitted entries` : "No admitted failure", Boolean(run?.memory.length)],
-        ["04 / Executable memory", run?.memory_frozen_at ? `${run.memory.length} entries frozen` : "Not frozen", Boolean(run?.memory_frozen_at && run.memory.length)],
-        ["05 / Frozen transfer", hits ? `${hits} pre-repair failure detections` : run?.verdict === "transfer_missed" ? "Memory missed this defect" : "No verified detection", hits > 0],
+        ["02 / Challenger proposal", proposals ? `${proposals} evaluated model proposal${proposals === 1 ? "" : "s"}` : "No evaluated proposal", proposals > 0],
+        ["03 / Independent replays", run?.memory.length ? `${run.memory.length} server-admitted ${run.memory.length === 1 ? "entry" : "entries"}` : "No admitted failure", Boolean(run?.memory.length)],
+        ["04 / Executable memory", run?.memory_frozen_at ? `${run.memory.length} ${run.memory.length === 1 ? "entry" : "entries"} frozen` : "Not frozen", Boolean(run?.memory_frozen_at && run.memory.length)],
+        ["05 / Frozen transfer", hits ? `${hits} pre-repair detection${hits === 1 ? "" : "s"}` : run?.verdict === "transfer_missed" ? "Memory missed this defect" : "No verified detection", hits > 0],
       ];
       for (const [label, value, confirmed] of stages) {
         const item = el("li", confirmed ? "confirmed" : "");
@@ -318,8 +319,8 @@
       const hits = transferHits(run);
       const block = el("section", `learning-transfer ${hits.length ? "detected" : ""}`);
       block.append(el("h3", "", hits.length ? "Frozen memory detected a separate defect — before repair." : "Transfer detection must be earned."));
-      block.append(el("p", "", hits.length ? `${hits.length} error-free failing initial replays match the untouched transfer source and frozen memory probe hashes. Detection is separate from whether a later repair passes.` : run.verdict === "transfer_missed" ? "The controller records a miss. Existing probes did not establish the separate defect; no new transfer Challenger probe may fill the gap." : "No qualifying pre-repair detection is recorded. A proposal, runtime error, later repair failure or an empty memory hash is not transfer proof."));
-      block.append(el("p", "field-note", `Memory frozen ${dateText(run.memory_frozen_at)} → transfer source revealed ${dateText(run.transfer_source_revealed_at)}.`));
+      block.append(el("p", "", hits.length ? `${hits.length} error-free failing initial ${hits.length === 1 ? "replay matches" : "replays match"} the untouched transfer source and frozen memory probe hashes. Detection is separate from whether a later repair passes.` : run.verdict === "transfer_missed" ? "The controller records a miss. Existing probes did not establish the separate defect; no new transfer Challenger probe may fill the gap." : "No qualifying pre-repair detection is recorded. A proposal, runtime error, later repair failure or an empty memory hash is not transfer proof."));
+      block.append(el("p", "field-note mono", `Memory frozen ${run.memory_frozen_at || "not recorded"} → transfer source revealed ${run.transfer_source_revealed_at || "not recorded"}.`));
       return block;
     });
     // Appending the transfer case must not discard existing training evidence.
@@ -350,21 +351,25 @@
     if (state.refreshing) return;
     state.refreshing = true;
     $("learning-refresh").disabled = true;
-    const selected = state.selected;
+    let updated = false;
     try {
       const result = await request("/api/learning");
       state.catalog = result.catalog;
-      for (const run of result.runs) state.runs.set(run.learning_id, run);
+      state.summaries = new Map(result.runs.map((run) => [run.learning_id, run]));
       state.loaded = true;
       state.error = "";
       if (manual) state.uncertain = false;
       if (!state.selected && result.runs.length) {
         state.selected = [...result.runs].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0].learning_id;
       }
-      if (selected) {
+      const selected = state.selected;
+      const revision = state.summaries.get(selected)?.revision;
+      if (selected && (manual || !state.runs.has(selected) || state.revisions.get(selected) !== revision)) {
         try {
           const run = await request(endpoint(selected));
           state.runs.set(run.learning_id, run);
+          updated = true;
+          state.revisions.set(selected, revision);
           if (state.selected === selected) state.selectedError = "";
         } catch (error) {
           if (state.selected === selected) state.selectedError = `Selected learning record: ${error.message}`;
@@ -376,7 +381,8 @@
       state.refreshing = false;
       $("learning-refresh").disabled = false;
       syncBusy();
-      render();
+      if (updated || !state.runs.has(state.selected)) render();
+      else { renderHistory(); connection(); readiness(); }
     }
   }
 
@@ -399,6 +405,12 @@
     try {
       const run = await request("/api/learning", { method: "POST", body: JSON.stringify(config) });
       state.runs.set(run.learning_id, run);
+      state.summaries.set(run.learning_id, {
+        learning_id: run.learning_id, status: run.status, verdict: run.verdict,
+        created_at: run.created_at, finished_at: run.finished_at,
+        memory_count: run.memory.length, memory_hash: run.memory_hash,
+        memory_frozen_at: run.memory_frozen_at,
+      });
       select(run.learning_id);
     } catch (error) {
       state.uncertain = true;
