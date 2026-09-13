@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harbor · Workspace settings</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #172e36; background: #edf3f2; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 3px solid #116b8c; outline-offset: 4px; }
+    .topbar { height: 78px; background: #fff; border-bottom: 1px solid #d0ddda; display: flex; align-items: center; justify-content: space-between; padding: 0 7%; }
+    .brand { font-size: 22px; font-weight: 780; letter-spacing: -.7px; display: flex; gap: 12px; align-items: center; }
+    .mark { width: 30px; height: 30px; background: #155b51; border-radius: 9px 9px 9px 2px; box-shadow: inset 0 0 0 7px #d8eee5; }
+    .workspace { color: #455f66; font-size: 13px; }
+    main { max-width: 840px; margin: 58px auto; padding: 0 28px; }
+    .eyebrow { color: #41615d; text-transform: uppercase; letter-spacing: 1.8px; font-size: 11px; font-weight: 760; }
+    h1 { font-size: clamp(28px, 4vw, 38px); letter-spacing: -1.3px; margin: 12px 0; }
+    .intro { color: #46626b; line-height: 1.6; margin-bottom: 30px; }
+    .card { background: white; border: 1px solid #cbdad6; border-radius: 16px; padding: 30px; box-shadow: 0 8px 24px #193c3310; }
+    h2 { font-size: 19px; letter-spacing: -.4px; margin: 0 0 9px; }
+    .muted { color: #4c646c; font-size: 14px; line-height: 1.6; }
+    label { display: block; font-size: 13px; font-weight: 700; margin: 25px 0 9px; }
+    input[type="text"] { width: 100%; border: 1px solid #8da7a0; border-radius: 7px; min-height: 46px; padding: 10px 13px; color: #172e36; background: #fff; }
+    .hint { color: #4c646c; font-size: 12px; margin: 9px 0 22px; }
+    .actions { display: flex; align-items: center; gap: 18px; min-height: 44px; }
+    button { min-height: 42px; border-radius: 7px; border: 1px solid #8aa69f; padding: 10px 17px; background: white; color: #173e36; font-weight: 650; font-size: 13px; }
+    .primary { background: #155b51; color: #fff; border-color: #155b51; }
+    #save-status { font-size: 13px; color: #315d4b; }
+    .notifications { display: flex; justify-content: space-between; align-items: center; gap: 20px; border-top: 1px solid #d9e4df; padding-top: 25px; margin-top: 28px; }
+    .notifications h2 { font-size: 16px; }
+    .notifications p { margin: 0; }
+    .note { font-size: 12px; line-height: 1.6; color: #506a71; margin: 24px 4px; }
+    dialog { width: min(440px, calc(100vw - 40px)); padding: 28px; border: 1px solid #b2c9c1; border-radius: 15px; color: #172e36; background: white; box-shadow: 0 24px 80px #102f3340; }
+    dialog::backdrop { background: #19353c80; }
+    .check { display: flex; gap: 12px; align-items: center; margin: 23px 0 26px; font-size: 14px; }
+    input[type="checkbox"] { width: 19px; height: 19px; accent-color: #155b51; }
+    .dialog-actions { display: flex; justify-content: flex-end; }
+    @media (max-width: 560px) { main { margin-top: 34px; padding: 0 18px; } .card { padding: 22px; } .notifications { align-items: flex-start; flex-direction: column; } .workspace { display: none; } }
+  </style>
+</head>
+<body>
+  <header class="topbar"><div class="brand"><span class="mark" aria-hidden="true"></span>Harbor</div><span class="workspace">Northstar studio / Personal workspace</span></header>
+  <main>
+    <p class="eyebrow">Your workspace, your way</p>
+    <h1>Workspace settings</h1>
+    <p class="intro">A little housekeeping for a more focused workday.</p>
+    <section class="card" aria-labelledby="profile-heading">
+      <h2 id="profile-heading">Profile</h2>
+      <p class="muted">Choose how your name appears to your teammates.</p>
+      <label for="display-name">Display name</label>
+      <input id="display-name" type="text" value="Alex Morgan" autocomplete="off" maxlength="80" aria-describedby="name-hint">
+      <p id="name-hint" class="hint">Use the name you want people to call you.</p>
+      <div class="actions"><button id="save-name" class="primary" type="button">Save changes</button><span id="save-status" role="status" aria-live="polite"></span></div>
+      <div class="notifications"><div><h2>Notifications</h2><p class="muted">Keep the updates you need. Skip the noise.</p></div><button id="open-notifications" type="button" aria-haspopup="dialog">Notification settings</button></div>
+    </section>
+    <p class="note">__KEYPROOF_NOTICE__</p>
+  </main>
+  <dialog id="notifications-dialog" aria-labelledby="dialog-heading" aria-describedby="dialog-description">
+    <h2 id="dialog-heading">Notification settings</h2>
+    <p id="dialog-description" class="muted">Choose whether Harbor sends you a weekly workspace summary.</p>
+    <label class="check"><input id="weekly-summary" type="checkbox" checked autofocus>Weekly email summary</label>
+    <div class="dialog-actions"><button id="close-notifications" class="primary" type="button">Done</button></div>
+  </dialog>
+  __KEYPROOF_SCRIPTS__
+</body>
+</html>
