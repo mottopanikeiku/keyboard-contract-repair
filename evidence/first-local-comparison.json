@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "scope": "Owned synthetic fixture; one pair, not a statistical result or accessibility certification.",
+  "cloud_trace": false,
+  "sponsor_integrated": false,
+  "verdict": "Tie on development and heldout correctness. Single used fewer model calls and tokens in this pair.",
+  "execution_revision": null,
+  "reproduction_note": "The original run did not capture an exact Git revision. Repeat the protocol with pinned dependencies and the explicit model if authorized; stochastic outputs and usage need not match.",
+  "comparison": {
+    "comparison_id": "0b10578bf98041078996e65c29758c08",
+    "status": "completed",
+    "errors": [],
+    "run_ids": [
+      "8d5448452bf4440292a3fd2b8c73be9e",
+      "faf70803e77040cfac33a4a9ea254f38"
+    ],
+    "started_at": "2026-09-13T00:06:49.862615+00:00",
+    "protocol": "Same original source, model, public contracts, tools and resource ceilings. Both candidates freeze before holdout. Actual spend may differ; one pair does not establish superiority.",
+    "frozen_at": "2026-09-13T00:08:57.169852+00:00",
+    "finished_at": "2026-09-13T00:09:21.206974+00:00"
+  },
+  "total_wall_seconds": 151.344,
+  "original_source": "const nameField = document.querySelector('#display-name');\nconst saveButton = document.querySelector('#save-name');\nconst notificationButton = document.querySelector('#open-notifications');\nconst notificationDialog = document.querySelector('#notifications-dialog');\nconst doneButton = document.querySelector('#close-notifications');\n\nsaveButton.addEventListener('click', async (event) => {\n  if (event.detail > 0) {\n    await window.harbor.saveDisplayName();\n  }\n});\n\nnotificationButton.addEventListener('click', () => {\n  notificationDialog.showModal();\n});\n\ndoneButton.addEventListener('click', () => {\n  notificationDialog.close();\n});\n\nnotificationDialog.addEventListener('close', () => {\n  nameField.focus();\n});\n",
+  "runs": [
+    {
+      "run_id": "8d5448452bf4440292a3fd2b8c73be9e",
+      "config": {
+        "mode": "team",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "max_iterations": 3,
+        "max_model_calls": 12,
+        "max_output_tokens": 6000,
+        "max_input_tokens": 180000,
+        "require_weave": false
+      },
+      "status": "completed",
+      "initial": {
+        "passed": false,
+        "passed_gates": 47,
+        "total_gates": 51,
+        "failed_gates": [
+          "keyboard.0.persist_exactly_once",
+          "keyboard.total_requests",
+          "modal_escape.focus_return",
+          "modal_done.focus_return"
+        ],
+        "source_hash": "7f5e1c8e4c8d8bcecea5657214fef77f8cd2c4ab754b3fc3ae8ddf615c47c087",
+        "axe_violations": [],
+        "errors": []
+      },
+      "final": {
+        "passed": true,
+        "passed_gates": 51,
+        "total_gates": 51,
+        "failed_gates": [],
+        "source_hash": "bafe712efb937d1cd75f4d66e6eb1078ee0303b33a1ccd3778bc0ea9cc2209a4",
+        "axe_violations": [],
+        "errors": []
+      },
+      "holdout": {
+        "passed": true,
+        "passed_gates": 63,
+        "total_gates": 63,
+        "failed_gates": [],
+        "source_hash": "bafe712efb937d1cd75f4d66e6eb1078ee0303b33a1ccd3778bc0ea9cc2209a4",
+        "axe_violations": [],
+        "errors": []
+      },
+      "usage": {
+        "calls": 4,
+        "input_tokens": 97261,
+        "output_tokens": 1614,
+        "cached_input_tokens": 0,
+        "elapsed_ms": 72137.57587199507
+      },
+      "final_source": "const nameField = document.querySelector('#display-name');\nconst saveButton = document.querySelector('#save-name');\nconst notificationButton = document.querySelector('#open-notifications');\nconst notificationDialog = document.querySelector('#notifications-dialog');\nconst doneButton = document.querySelector('#close-notifications');\n\nsaveButton.addEventListener('click', async () => {\n  await window.harbor.saveDisplayName();\n});\n\nnotificationButton.addEventListener('click', () => {\n  notificationDialog.showModal();\n  notificationDialog.querySelector('#weekly-summary').focus();\n});\n\nnotificationDialog.addEventListener('keydown', (event) => {\n  if (event.key !== 'Tab') return;\n\n  const weeklySummary = notificationDialog.querySelector('#weekly-summary');\n  if (event.shiftKey && document.activeElement === weeklySummary) {\n    event.preventDefault();\n    doneButton.focus();\n  } else if (!event.shiftKey && document.activeElement === doneButton) {\n    event.preventDefault();\n    weeklySummary.focus();\n  }\n});\n\ndoneButton.addEventListener('click', () => {\n  notificationDialog.close();\n});\n\nnotificationDialog.addEventListener('close', () => {\n  notificationButton.focus();\n});\n",
+      "accepted_patches": 1,
+      "errors": []
+    },
+    {
+      "run_id": "faf70803e77040cfac33a4a9ea254f38",
+      "config": {
+        "mode": "single",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "max_iterations": 3,
+        "max_model_calls": 12,
+        "max_output_tokens": 6000,
+        "max_input_tokens": 180000,
+        "require_weave": false
+      },
+      "status": "completed",
+      "initial": {
+        "passed": false,
+        "passed_gates": 47,
+        "total_gates": 51,
+        "failed_gates": [
+          "keyboard.0.persist_exactly_once",
+          "keyboard.total_requests",
+          "modal_escape.focus_return",
+          "modal_done.focus_return"
+        ],
+        "source_hash": "7f5e1c8e4c8d8bcecea5657214fef77f8cd2c4ab754b3fc3ae8ddf615c47c087",
+        "axe_violations": [],
+        "errors": []
+      },
+      "final": {
+        "passed": true,
+        "passed_gates": 51,
+        "total_gates": 51,
+        "failed_gates": [],
+        "source_hash": "40c3a9d056bbd2a543b1d67995564c26dc172941d419d8649734c0940dff3d63",
+        "axe_violations": [],
+        "errors": []
+      },
+      "holdout": {
+        "passed": true,
+        "passed_gates": 63,
+        "total_gates": 63,
+        "failed_gates": [],
+        "source_hash": "40c3a9d056bbd2a543b1d67995564c26dc172941d419d8649734c0940dff3d63",
+        "axe_violations": [],
+        "errors": []
+      },
+      "usage": {
+        "calls": 1,
+        "input_tokens": 18996,
+        "output_tokens": 227,
+        "cached_input_tokens": 0,
+        "elapsed_ms": 17031.271050000214
+      },
+      "final_source": "const nameField = document.querySelector('#display-name');\nconst saveButton = document.querySelector('#save-name');\nconst notificationButton = document.querySelector('#open-notifications');\nconst notificationDialog = document.querySelector('#notifications-dialog');\nconst doneButton = document.querySelector('#close-notifications');\n\nsaveButton.addEventListener('click', async () => {\n  await window.harbor.saveDisplayName();\n});\n\nnotificationButton.addEventListener('click', () => {\n  notificationDialog.showModal();\n});\n\ndoneButton.addEventListener('click', () => {\n  notificationDialog.close();\n});\n\nnotificationDialog.addEventListener('close', () => {\n  notificationButton.focus();\n});\n",
+      "accepted_patches": 1,
+      "errors": []
+    }
+  ]
+}

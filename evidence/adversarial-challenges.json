@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "scope": "Curated samples of one owned synthetic fixture, not model-generated repairs or a statistical benchmark.",
+  "weave_delivery": false,
+  "reproduce": "uv run keyproof challenge <preset_id> --local-only",
+  "http_boundaries": {
+    "cross_origin_mutation_rejected": true,
+    "arbitrary_candidate_source_rejected": true,
+    "overlapping_execution_rejected": true
+  },
+  "results": [
+    {
+      "challenge_id": "2a3a355de7cb4659829d39c24150c4dd",
+      "preset_id": "enter_only",
+      "origin": "curated_adversarial_sample",
+      "verdict": "rejected",
+      "source_hash": "680315f22aa2b423119a5c0592f0f79d1236f55d98ed03884ca4380a90810fa2",
+      "frozen_at": "2026-09-13T01:31:41.931341+00:00",
+      "finished_at": "2026-09-13T01:32:02.897088+00:00",
+      "weave_enabled": false,
+      "reports": {
+        "development": {
+          "passed": true,
+          "passed_gates": 51,
+          "total_gates": 51,
+          "failed_gates": [],
+          "axe_violations": 0
+        },
+        "holdout": {
+          "passed": false,
+          "passed_gates": 59,
+          "total_gates": 63,
+          "failed_gates": [
+            "keyboard.0.persist_exactly_once",
+            "keyboard.1.persist_exactly_once",
+            "keyboard.2.persist_exactly_once",
+            "keyboard.total_requests"
+          ],
+          "axe_violations": 0
+        }
+      }
+    },
+    {
+      "challenge_id": "398ab0198b2743909846bd6d449732a9",
+      "preset_id": "original",
+      "origin": "curated_adversarial_sample",
+      "verdict": "rejected",
+      "source_hash": "7f5e1c8e4c8d8bcecea5657214fef77f8cd2c4ab754b3fc3ae8ddf615c47c087",
+      "frozen_at": "2026-09-13T01:34:03.234799+00:00",
+      "finished_at": "2026-09-13T01:34:24.512744+00:00",
+      "weave_enabled": false,
+      "reports": {
+        "development": {
+          "passed": false,
+          "passed_gates": 47,
+          "total_gates": 51,
+          "failed_gates": [
+            "keyboard.0.persist_exactly_once",
+            "keyboard.total_requests",
+            "modal_escape.focus_return",
+            "modal_done.focus_return"
+          ],
+          "axe_violations": 0
+        },
+        "holdout": {
+          "passed": false,
+          "passed_gates": 57,
+          "total_gates": 63,
+          "failed_gates": [
+            "keyboard.0.persist_exactly_once",
+            "keyboard.1.persist_exactly_once",
+            "keyboard.2.persist_exactly_once",
+            "keyboard.total_requests",
+            "modal_escape.focus_return",
+            "modal_done.focus_return"
+          ],
+          "axe_violations": 0
+        }
+      }
+    },
+    {
+      "challenge_id": "362645ba966145f3827ad5eab718e70a",
+      "preset_id": "reference",
+      "origin": "curated_adversarial_sample",
+      "verdict": "accepted",
+      "source_hash": "40c3a9d056bbd2a543b1d67995564c26dc172941d419d8649734c0940dff3d63",
+      "frozen_at": "2026-09-13T01:34:24.628851+00:00",
+      "finished_at": "2026-09-13T01:34:45.688613+00:00",
+      "weave_enabled": false,
+      "reports": {
+        "development": {
+          "passed": true,
+          "passed_gates": 51,
+          "total_gates": 51,
+          "failed_gates": [],
+          "axe_violations": 0
+        },
+        "holdout": {
+          "passed": true,
+          "passed_gates": 63,
+          "total_gates": 63,
+          "failed_gates": [],
+          "axe_violations": 0
+        }
+      }
+    },
+    {
+      "challenge_id": "e524d19647c747cdb7a01fac70026e29",
+      "preset_id": "late_duplicate",
+      "origin": "curated_adversarial_sample",
+      "verdict": "rejected",
+      "source_hash": "d3ec2967aee507940c233458a014467ff32059de786e6e3d66759511d215e209",
+      "frozen_at": "2026-09-13T01:34:45.944906+00:00",
+      "finished_at": "2026-09-13T01:35:06.909778+00:00",
+      "weave_enabled": false,
+      "reports": {
+        "development": {
+          "passed": false,
+          "passed_gates": 47,
+          "total_gates": 51,
+          "failed_gates": [
+            "keyboard.0.persist_exactly_once",
+            "keyboard.total_requests",
+            "pointer.0.persist_exactly_once",
+            "pointer.total_requests"
+          ],
+          "axe_violations": 0
+        },
+        "holdout": {
+          "passed": false,
+          "passed_gates": 56,
+          "total_gates": 63,
+          "failed_gates": [
+            "keyboard.0.persist_exactly_once",
+            "keyboard.1.persist_exactly_once",
+            "keyboard.2.persist_exactly_once",
+            "keyboard.total_requests",
+            "pointer.0.persist_exactly_once",
+            "pointer.1.persist_exactly_once",
+            "pointer.total_requests"
+          ],
+          "axe_violations": 0
+        }
+      }
+    },
+    {
+      "challenge_id": "7de5ac8fa6be4c9eb385e0fd6e832319",
+      "preset_id": "forged_axe",
+      "origin": "curated_adversarial_sample",
+      "verdict": "rejected",
+      "source_hash": "4a087de7deee4bbd0fde41365cc9ce306ebcde33faa65ebe173554c815158d85",
+      "frozen_at": "2026-09-13T01:35:06.932840+00:00",
+      "finished_at": "2026-09-13T01:35:28.059655+00:00",
+      "weave_enabled": false,
+      "reports": {
+        "development": {
+          "passed": false,
+          "passed_gates": 47,
+          "total_gates": 51,
+          "failed_gates": [
+            "keyboard.settled.axe",
+            "pointer.settled.axe",
+            "modal_escape.settled.axe",
+            "modal_done.settled.axe"
+          ],
+          "axe_violations": 4
+        },
+        "holdout": {
+          "passed": false,
+          "passed_gates": 59,
+          "total_gates": 63,
+          "failed_gates": [
+            "keyboard.settled.axe",
+            "pointer.settled.axe",
+            "modal_escape.settled.axe",
+            "modal_done.settled.axe"
+          ],
+          "axe_violations": 4
+        }
+      }
+    }
+  ]
+}

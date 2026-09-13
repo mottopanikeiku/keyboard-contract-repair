@@ -1,0 +1,30 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-contracts:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked --python 3.12
+      - name: Install browser isolation and Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          uv run playwright install --with-deps chromium
+      - run: uv run ruff check src tests
+      - run: uv run ruff format --check src tests
+      - run: node --check src/keyproof/web/app.js
+      - run: uv run pytest
+      - run: uv build
