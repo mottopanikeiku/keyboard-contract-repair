@@ -15,6 +15,7 @@ import weave
 from pydantic import BaseModel, ValidationError
 
 from .contracts import RunConfig, Usage
+from .telemetry import trace_agent_inputs
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -55,7 +56,7 @@ class ModelClient:
         self.model = config.model or os.environ.get("KEYPROOF_MODEL")
         if config.provider == "openai":
             self.model = self.model or os.environ.get("OPENAI_MODEL")
-        self.usage = Usage(input_tokens=0, output_tokens=0, cached_input_tokens=0)
+        self.usage = Usage(input_tokens=0, output_tokens=0, cached_input_tokens=0, complete=False)
         self._uncertain_usage = False
         self._busy = False
 
@@ -96,7 +97,7 @@ class ModelClient:
             elif getattr(self.usage, field) is not None:
                 setattr(self.usage, field, getattr(self.usage, field) + value)
 
-    @weave.op()
+    @weave.op(postprocess_inputs=trace_agent_inputs)
     async def complete(self, prompt: str, response: type[T]) -> T:
         if self._busy:
             raise ProviderError("Concurrent calls cannot share a run budget.")
@@ -104,9 +105,12 @@ class ModelClient:
         if self.config.provider == "codex" and not shutil.which("codex"):
             raise ProviderError("Codex CLI is not installed or is not on PATH.")
         if self.config.provider == "openai" and (
-            not self.model or not (os.environ.get("KEYPROOF_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+            not self.model
+            or not (os.environ.get("KEYPROOF_API_KEY") or os.environ.get("OPENAI_API_KEY"))
         ):
-            raise ProviderError("OpenAI-compatible provider requires an API key and an explicit model.")
+            raise ProviderError(
+                "OpenAI-compatible provider requires an API key and an explicit model."
+            )
         self._reported_usage = None
         self._busy = True
         self.usage.calls += 1
@@ -121,16 +125,22 @@ class ModelClient:
             self._account(usage)
             accounted = True
             if self._uncertain_usage:
-                raise BudgetExhausted("Response usage is unknown; no unmetered proposal will be used.")
+                raise BudgetExhausted(
+                    "Response usage is unknown; no unmetered proposal will be used."
+                )
             if (
                 self.usage.input_tokens > self.config.max_input_tokens
                 or self.usage.output_tokens > self.config.max_output_tokens
             ):
-                raise BudgetExhausted("Response exceeded an aggregate token ceiling; proposal discarded.")
+                raise BudgetExhausted(
+                    "Response exceeded an aggregate token ceiling; proposal discarded."
+                )
             try:
                 return response.model_validate_json(text)
             except (ValidationError, ValueError) as exc:
-                raise ProviderError("Model response did not satisfy the requested JSON schema.") from exc
+                raise ProviderError(
+                    "Model response did not satisfy the requested JSON schema."
+                ) from exc
         finally:
             if not accounted:
                 self._account(self._reported_usage)
@@ -145,18 +155,32 @@ class ModelClient:
             schema_path = Path(temporary) / "response.schema.json"
             schema_path.write_text(json.dumps(schema), encoding="utf-8")
             argv = [
-                executable, "exec", "--ignore-user-config", "--ephemeral",
-                "--sandbox", "read-only", "--skip-git-repo-check", "--json",
-                "-c", "features.shell_tool=false", "-c", 'web_search="disabled"',
-                "-c", 'model_reasoning_effort="low"',
-                "--output-schema", str(schema_path),
+                executable,
+                "exec",
+                "--ignore-user-config",
+                "--ephemeral",
+                "--sandbox",
+                "read-only",
+                "--skip-git-repo-check",
+                "--json",
+                "-c",
+                "features.shell_tool=false",
+                "-c",
+                'web_search="disabled"',
+                "-c",
+                'model_reasoning_effort="low"',
+                "--output-schema",
+                str(schema_path),
             ]
             if self.model:
                 argv.extend(["--model", self.model])
             argv.append("-")
             process = await asyncio.create_subprocess_exec(
-                *argv, cwd=temporary, stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                *argv,
+                cwd=temporary,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
             )
             try:
@@ -173,7 +197,9 @@ class ModelClient:
                 raise
             if process.returncode:
                 # CLI diagnostics can contain account details; do not persist raw stderr.
-                raise ProviderError(f"Codex exited with status {process.returncode}; no valid completion.")
+                raise ProviderError(
+                    f"Codex exited with status {process.returncode}; no valid completion."
+                )
             messages: list[str] = []
             usage = None
             completed = False
@@ -194,7 +220,9 @@ class ModelClient:
                     if not isinstance(item, dict):
                         raise ProviderError("Codex emitted an invalid item.")
                     if item.get("type") not in {"agent_message", "reasoning"}:
-                        raise ProviderError("Codex attempted an unexpected tool or non-message action.")
+                        raise ProviderError(
+                            "Codex attempted an unexpected tool or non-message action."
+                        )
                     if kind == "item.completed" and item.get("type") == "agent_message":
                         messages.append(item.get("text", ""))
                 elif kind == "turn.completed":
@@ -214,10 +242,14 @@ class ModelClient:
     async def _openai(self, prompt: str, schema: dict) -> tuple[str, dict | None]:
         key = os.environ.get("KEYPROOF_API_KEY") or os.environ.get("OPENAI_API_KEY")
         if not key or not self.model:
-            raise ProviderError("OpenAI-compatible provider requires an API key and an explicit model.")
+            raise ProviderError(
+                "OpenAI-compatible provider requires an API key and an explicit model."
+            )
         base = os.environ.get("KEYPROOF_BASE_URL", "https://api.openai.com/v1").rstrip("/")
         remaining = self.config.max_output_tokens - (self.usage.output_tokens or 0)
-        async with httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout_seconds, follow_redirects=False
+        ) as client:
             try:
                 result = await client.post(
                     base + "/chat/completions",
@@ -226,13 +258,20 @@ class ModelClient:
                         "model": self.model,
                         "messages": [{"role": "user", "content": prompt}],
                         "max_completion_tokens": remaining,
-                        "response_format": {"type": "json_schema", "json_schema": {
-                            "name": "keyproof_response", "strict": True, "schema": schema,
-                        }},
+                        "response_format": {
+                            "type": "json_schema",
+                            "json_schema": {
+                                "name": "keyproof_response",
+                                "strict": True,
+                                "schema": schema,
+                            },
+                        },
                     },
                 )
             except httpx.HTTPError as exc:
-                raise ProviderError("OpenAI-compatible request failed at the transport layer.") from exc
+                raise ProviderError(
+                    "OpenAI-compatible request failed at the transport layer."
+                ) from exc
         if result.status_code != 200:
             raise ProviderError(f"OpenAI-compatible provider returned HTTP {result.status_code}.")
         try:
@@ -241,7 +280,9 @@ class ModelClient:
             usage = {
                 "input_tokens": raw.get("prompt_tokens"),
                 "output_tokens": raw.get("completion_tokens"),
-                "cached_input_tokens": (raw.get("prompt_tokens_details") or {}).get("cached_tokens"),
+                "cached_input_tokens": (raw.get("prompt_tokens_details") or {}).get(
+                    "cached_tokens"
+                ),
             }
             self._reported_usage = usage
             choice = body["choices"][0]

@@ -29,7 +29,9 @@ def test_overlapping_occurrences_are_ambiguous():
 
 def test_edits_match_original_not_prior_replacements():
     # A replacement may contain another edit's before string; it must not be edited again.
-    assert apply_patch("alpha; beta;", patch(("alpha", "beta"), ("beta", "gamma"))) == "beta; gamma;"
+    assert (
+        apply_patch("alpha; beta;", patch(("alpha", "beta"), ("beta", "gamma"))) == "beta; gamma;"
+    )
 
 
 def test_overlapping_edit_ranges_are_rejected():

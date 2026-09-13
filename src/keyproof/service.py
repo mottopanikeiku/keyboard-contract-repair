@@ -2,17 +2,19 @@
 
 import asyncio
 import fcntl
-import json
 import os
 import shutil
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from keyproof.contracts import RunConfig, RunEvent, RunRecord, timestamp
+from keyproof.contracts import RunConfig, RunEvent, RunRecord, WeaveStatus, timestamp
 from keyproof.storage import EvidenceStore
 from keyproof.telemetry import Telemetry, redact
+
+if TYPE_CHECKING:
+    from keyproof.challenges import ChallengeRun
 
 
 class RunService:
@@ -27,21 +29,36 @@ class RunService:
             raise RuntimeError("Another Keyproof process owns this evidence directory") from None
         self.store.mark_interrupted()
         self._task: asyncio.Task[None] | None = None
+        self._connecting = False
 
     @property
     def busy(self) -> bool:
-        return self._task is not None and not self._task.done()
+        return self._connecting or (self._task is not None and not self._task.done())
 
-    def check_config(self, config: RunConfig) -> None:
+    async def reconnect(self) -> WeaveStatus:
         if self.busy:
-            raise RuntimeError("A run is active. Wait for it to finish before starting another.")
-        if config.require_weave and not self.telemetry.status.enabled:
+            raise RuntimeError("Connect W&B between operations, not while the controller is busy.")
+        self._connecting = True
+        try:
+            return await self.telemetry.connect()
+        finally:
+            self._connecting = False
+
+    def _check_execution(self, require_weave: bool) -> None:
+        if self.busy:
+            raise RuntimeError("The controller is busy. Wait for the current operation to finish.")
+        if require_weave and not self.telemetry.status.enabled:
             raise RuntimeError(
                 "A verified Weave connection is required. Connect W&B, or explicitly allow "
                 "an untraced local experiment; that experiment is not sponsor-integrated."
             )
+
+    def check_config(self, config: RunConfig) -> None:
+        self._check_execution(config.require_weave)
         if config.provider == "codex" and shutil.which("codex") is None:
-            raise ValueError("Codex CLI is not installed. Install/login or configure the API provider.")
+            raise ValueError(
+                "Codex CLI is not installed. Install/login or configure the API provider."
+            )
         if config.provider == "openai" and not (
             os.environ.get("KEYPROOF_API_KEY") or os.environ.get("OPENAI_API_KEY")
         ):
@@ -49,6 +66,7 @@ class RunService:
 
     def _new_record(self, config: RunConfig) -> RunRecord:
         from keyproof.oracle import fixture_source
+
         if config.model is None:
             model = os.environ.get("KEYPROOF_MODEL")
             if config.provider == "openai":
@@ -74,11 +92,18 @@ class RunService:
 
     def submit_comparison(self, config: RunConfig) -> dict[str, Any]:
         self.check_config(config)
-        if not (config.model or os.environ.get("KEYPROOF_MODEL") or (
-            config.provider == "openai" and os.environ.get("OPENAI_MODEL")
-        )):
-            raise ValueError("Comparisons require an explicit model ID. Set Model or KEYPROOF_MODEL.")
-        records = [self._new_record(config.model_copy(update={"mode": mode})) for mode in ("team", "single")]
+        if not (
+            config.model
+            or os.environ.get("KEYPROOF_MODEL")
+            or (config.provider == "openai" and os.environ.get("OPENAI_MODEL"))
+        ):
+            raise ValueError(
+                "Comparisons require an explicit model ID. Set Model or KEYPROOF_MODEL."
+            )
+        records = [
+            self._new_record(config.model_copy(update={"mode": mode}))
+            for mode in ("team", "single")
+        ]
         comparison = {
             "comparison_id": uuid4().hex,
             "status": "queued",
@@ -94,6 +119,81 @@ class RunService:
         self.store.save_comparison(comparison)
         self._task = asyncio.create_task(self._compare(comparison, records))
         return comparison
+
+    def submit_challenge(self, preset_id: str, *, require_weave: bool = True) -> "ChallengeRun":
+        from keyproof.challenges import make_challenge
+
+        self._check_execution(require_weave)
+        record = make_challenge(preset_id, self.telemetry.status)
+        self.store.save_challenge(record)
+        self._task = asyncio.create_task(self._execute_challenge(record))
+        return record
+
+    async def _execute_challenge(self, record: "ChallengeRun") -> None:
+        from keyproof.challenges import run_challenge
+
+        def on_update(snapshot: "ChallengeRun") -> None:
+            if snapshot.status == "completed" and self.telemetry.status.enabled:
+                snapshot = snapshot.model_copy(
+                    update={
+                        "status": "running",
+                        "verdict": "not_evaluated",
+                        "finished_at": None,
+                    }
+                )
+            self.store.save_challenge(snapshot)
+
+        try:
+            record = await run_challenge(
+                record,
+                artifact_dir=self.store.challenge_dir(record.challenge_id) / "artifacts",
+                on_update=on_update,
+            )
+            if record.status == "completed" and self.telemetry.status.enabled:
+                verdict = record.verdict
+                record.status = "running"
+                record.verdict = "not_evaluated"
+                record.finished_at = None
+                record.events.append(
+                    RunEvent(
+                        sequence=len(record.events) + 1,
+                        role="weave",
+                        kind="evaluation_started",
+                        summary="Re-executing the frozen sample in a real Weave Dataset/Evaluation.",
+                    )
+                )
+                self.store.save_challenge(record)
+                delivery = await self.telemetry.evaluate_challenge(record)
+                self.store._write(
+                    self.store.challenge_dir(record.challenge_id) / "weave-evaluation.json",
+                    delivery,
+                )
+                record.weave.evaluation_url = delivery["evaluation_url"]
+                record.events.append(
+                    RunEvent(
+                        sequence=len(record.events) + 1,
+                        role="weave",
+                        kind="evaluation_published",
+                        summary="Completed evaluation trace retrieved from Weave; delivery verified.",
+                        data={"url": delivery["evaluation_url"], "call_id": delivery["call_id"]},
+                    )
+                )
+                record.status = "completed"
+                record.verdict = verdict
+        except asyncio.CancelledError:
+            record.status = "failed"
+            record.verdict = "error"
+            record.errors.append(
+                "Operation cancelled; complete execution and cloud delivery are not claimed."
+            )
+            raise
+        except Exception as exc:
+            record.status = "failed"
+            record.verdict = "error"
+            record.errors.append(redact(f"{type(exc).__name__}: {str(exc)[:1500]}"))
+        finally:
+            record.finished_at = timestamp()
+            self.store.save_challenge(record)
 
     async def wait(self) -> None:
         if self._task is not None:
@@ -141,20 +241,28 @@ class RunService:
         try:
             summary = await self.telemetry.evaluate_frozen(record)
             self.store._write(self.store.run_dir(record.run_id) / "weave-evaluation.json", summary)
+            record.weave.evaluation_url = summary["evaluation_url"]
             record.events.append(
                 RunEvent(
                     sequence=len(record.events) + 1,
                     role="weave",
                     kind="evaluation_published",
                     summary="Frozen source re-executed in a Weave Dataset/Evaluation; no further repair.",
-                    data={"project": self.telemetry.status.project, "url": self.telemetry.status.url},
+                    data={
+                        "project": self.telemetry.status.project,
+                        "url": summary["evaluation_url"],
+                        "call_id": summary["call_id"],
+                    },
                 )
             )
         except Exception as exc:
-            record.weave.error = f"Cloud evaluation failed ({type(exc).__name__}); local evidence retained."
+            record.weave.error = (
+                f"Cloud evaluation failed ({type(exc).__name__}); local evidence retained."
+            )
             record.errors.append(record.weave.error)
             if record.config.require_weave:
                 record.status = "failed"
+        record.finished_at = timestamp()
         self.store.save_run(record)
 
     async def _compare(self, comparison: dict[str, Any], records: list[RunRecord]) -> None:
@@ -180,23 +288,31 @@ class RunService:
                 if record.holdout_report.errors:
                     record.status = "failed"
                     record.errors.extend(record.holdout_report.errors)
+                record.finished_at = timestamp()
                 self.store.save_run(record)
                 if not record.final_report.errors and not record.holdout_report.errors:
                     await self._publish(record)
             final = [self.store.get_run(record.run_id) for record in records]
             comparison["status"] = (
-                "completed" if all(
-                    record.final_report is not None and record.holdout_report is not None
+                "completed"
+                if all(
+                    record.final_report is not None
+                    and record.holdout_report is not None
                     and not record.errors
                     for record in final
-                ) else "failed"
+                )
+                else "failed"
             )
         except asyncio.CancelledError:
             comparison["status"] = "failed"
             comparison["errors"].append("Comparison cancelled; no complete comparison is claimed.")
             for pending in records:
                 interrupted = self.store.get_run(pending.run_id)
-                if interrupted.status in {"queued", "running"}:
+                if (
+                    interrupted.status in {"queued", "running"}
+                    or interrupted.holdout_report is None
+                    or (interrupted.config.require_weave and not interrupted.weave.evaluation_url)
+                ):
                     interrupted.status = "failed"
                     interrupted.finished_at = timestamp()
                     interrupted.errors.append("Comparison cancelled before this run completed.")
@@ -210,15 +326,18 @@ class RunService:
             self.store.save_comparison(comparison)
 
     def comparison(self, identifier: str) -> dict[str, Any]:
+        from keyproof.assessment import assess_comparison
+
         result = self.store.get_comparison(identifier)
         result["results"] = [
             self.store.get_run(run_id).model_dump(mode="json") for run_id in result["run_ids"]
         ]
+        result["assessment"] = assess_comparison(result)
         return result
 
     async def close(self) -> None:
         try:
-            if self.busy:
+            if self._task is not None and not self._task.done():
                 self._task.cancel()
                 with suppress(asyncio.CancelledError):
                     await self._task

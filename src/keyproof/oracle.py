@@ -13,16 +13,38 @@ import json
 import re
 import shlex
 import shutil
+import sys
 import tempfile
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
-from playwright.async_api import Browser, BrowserContext, CDPSession, Page, Playwright, Route, async_playwright
+from playwright.async_api import (
+    Browser,
+    BrowserContext,
+    CDPSession,
+    Page,
+    Playwright,
+    Route,
+    async_playwright,
+)
 
 from keyproof.contracts import BrowserAction, EvaluationReport, GateResult
+
+
+async def _close_preserving_error(
+    close: Callable[[], Awaitable[None]], error: BaseException | None
+) -> None:
+    """A dead driver must not replace cancellation with a secondary close error."""
+    try:
+        await close()
+    except Exception:
+        if error is None:
+            raise
+
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 ORIGIN = "http://keyproof.test"
@@ -40,12 +62,27 @@ TASK_SPEC = (
     "it does not claim to detect actions scheduled beyond that bounded horizon."
 )
 _ALLOWED_KEYS = frozenset(
-    {"Tab", "Shift+Tab", "Enter", "Space", "Escape", "Backspace", "Delete", "Home", "End",
-     "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Control+A", "Meta+A"}
+    {
+        "Tab",
+        "Shift+Tab",
+        "Enter",
+        "Space",
+        "Escape",
+        "Backspace",
+        "Delete",
+        "Home",
+        "End",
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "Control+A",
+        "Meta+A",
+    }
 )
 _MAX_SOURCE_BYTES = 64 * 1024
 _QUIET_WINDOW_MS = 60_000
-_CLOCK_START = datetime(2025, 1, 1, tzinfo=timezone.utc)
+_CLOCK_START = datetime(2025, 1, 1, tzinfo=UTC)
 
 
 def fixture_source() -> str:
@@ -105,7 +142,9 @@ def render_fixture(source: str) -> str:
     )
     shell = (FIXTURE_DIR / "app.html").read_text(encoding="utf-8")
     return (
-        shell.replace("<head>", '<head>\n  <meta http-equiv="Content-Security-Policy" content="' + csp + '">')
+        shell.replace(
+            "<head>", '<head>\n  <meta http-equiv="Content-Security-Policy" content="' + csp + '">'
+        )
         .replace("__KEYPROOF_NOTICE__", notice)
         .replace("__KEYPROOF_SCRIPTS__", f"<script>{host}</script>\n<script>{loader}</script>")
     )
@@ -115,7 +154,9 @@ async def _launch_chromium(playwright: Playwright) -> Browser:
     """Require an OS network namespace in addition to Chromium's own sandbox."""
     bubblewrap = shutil.which("bwrap")
     if bubblewrap is None:
-        raise RuntimeError("bubblewrap is required for network-isolated Chromium; no fallback is permitted")
+        raise RuntimeError(
+            "bubblewrap is required for network-isolated Chromium; no fallback is permitted"
+        )
     executable = Path(playwright.chromium.executable_path)
     if not executable.is_file():
         raise RuntimeError("Playwright Chromium executable is missing")
@@ -124,15 +165,18 @@ async def _launch_chromium(playwright: Playwright) -> Browser:
     with tempfile.TemporaryDirectory(prefix="keyproof-launch-") as directory:
         wrapper = Path(directory) / "chromium"
         wrapper.write_text(
-            "#!/bin/sh\nexec " + shlex.quote(bubblewrap)
+            "#!/bin/sh\nexec "
+            + shlex.quote(bubblewrap)
             + " --die-with-parent --unshare-net --ro-bind / / --dev /dev"
             + " --proc /proc --tmpfs /tmp -- "
-            + shlex.quote(str(executable)) + ' "$@"\n',
+            + shlex.quote(str(executable))
+            + ' "$@"\n',
             encoding="utf-8",
         )
         wrapper.chmod(0o700)
         return await playwright.chromium.launch(
-            executable_path=str(wrapper), chromium_sandbox=True,
+            executable_path=str(wrapper),
+            chromium_sandbox=True,
         )
 
 
@@ -142,13 +186,16 @@ class _IsolatedWorld:
     context_id: int
 
     async def call(self, function: str, *arguments: Any) -> Any:
-        result = await self.cdp.send("Runtime.callFunctionOn", {
-            "functionDeclaration": function,
-            "executionContextId": self.context_id,
-            "arguments": [{"value": value} for value in arguments],
-            "returnByValue": True,
-            "awaitPromise": True,
-        })
+        result = await self.cdp.send(
+            "Runtime.callFunctionOn",
+            {
+                "functionDeclaration": function,
+                "executionContextId": self.context_id,
+                "arguments": [{"value": value} for value in arguments],
+                "returnByValue": True,
+                "awaitPromise": True,
+            },
+        )
         if "exceptionDetails" in result:
             details = result["exceptionDetails"]
             message = details.get("exception", {}).get("description") or details.get("text")
@@ -174,8 +221,10 @@ class _Session:
 
 async def _new_session(browser: Browser, source: str) -> _Session:
     context = await browser.new_context(
-        viewport={"width": 1100, "height": 850}, service_workers="block",
-        accept_downloads=False, java_script_enabled=True,
+        viewport={"width": 1100, "height": 850},
+        service_workers="block",
+        accept_downloads=False,
+        java_script_enabled=True,
     )
     context.set_default_timeout(2500)
     context.set_default_navigation_timeout(5000)
@@ -198,17 +247,29 @@ async def _new_session(browser: Browser, source: str) -> _Session:
             entry = {"method": request.method, "payload": payload, "accepted": False}
             session.writes.append(entry)
             if (
-                isinstance(payload, dict) and set(payload) == {"display_name"}
+                isinstance(payload, dict)
+                and set(payload) == {"display_name"}
                 and isinstance(payload["display_name"], str)
                 and 0 < len(payload["display_name"]) <= 80
             ):
                 session.stored_name = payload["display_name"]
                 entry["accepted"] = True
-                await route.fulfill(status=200, content_type="application/json", body=json.dumps({
-                    "display_name": session.stored_name, "synthetic": True,
-                }))
+                await route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps(
+                        {
+                            "display_name": session.stored_name,
+                            "synthetic": True,
+                        }
+                    ),
+                )
             else:
-                await route.fulfill(status=422, content_type="application/json", body='{"detail":"Invalid display name"}')
+                await route.fulfill(
+                    status=422,
+                    content_type="application/json",
+                    body='{"detail":"Invalid display name"}',
+                )
         else:
             session.blocked.append(request.url[:200])
             await route.abort("blockedbyclient")
@@ -226,14 +287,17 @@ async def _new_session(browser: Browser, source: str) -> _Session:
         await page.goto(ORIGIN + "/", wait_until="load")
         cdp = await context.new_cdp_session(page)
         tree = await cdp.send("Page.getFrameTree")
-        world = await cdp.send("Page.createIsolatedWorld", {
-            "frameId": tree["frameTree"]["frame"]["id"],
-            "worldName": "keyproof-oracle",
-        })
+        world = await cdp.send(
+            "Page.createIsolatedWorld",
+            {
+                "frameId": tree["frameTree"]["frame"]["id"],
+                "worldName": "keyproof-oracle",
+            },
+        )
         session.world = _IsolatedWorld(cdp, world["executionContextId"])
         await _settle(session, 80)
-    except BaseException:
-        await context.close()
+    except BaseException as exc:
+        await _close_preserving_error(context.close, exc)
         raise
     return session
 
@@ -258,8 +322,12 @@ async def _snapshot(session: _Session) -> dict[str, Any]:
         "aria_snapshot": (await page.locator("body").aria_snapshot())[:18000],
         "focus": focus,
         "visible_text": (await session.read("() => document.body.innerText"))[:12000],
-        "persistence": {"synthetic": True, "display_name": session.stored_name,
-                        "request_count": len(session.writes), "requests": list(session.writes)},
+        "persistence": {
+            "synthetic": True,
+            "display_name": session.stored_name,
+            "request_count": len(session.writes),
+            "requests": list(session.writes),
+        },
         "errors": list(session.errors),
         "allowed_keys": sorted(_ALLOWED_KEYS),
     }
@@ -282,18 +350,20 @@ class TaskBrowser:
         try:
             self._browser = await _launch_chromium(self._playwright)
             self._session = await _new_session(self._browser, self.source)
-        except BaseException:
-            await self.__aexit__(None, None, None)
+        except BaseException as exc:
+            await self.__aexit__(type(exc), exc, exc.__traceback__)
             raise
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         try:
             if self._browser is not None:
-                await self._browser.close()
+                await _close_preserving_error(self._browser.close, exc)
         finally:
             if self._playwright is not None:
-                await self._playwright.stop()
+                await _close_preserving_error(
+                    self._playwright.stop, exc if exc is not None else sys.exception()
+                )
 
     async def observe(self) -> dict[str, Any]:
         if self._session is None:
@@ -327,7 +397,8 @@ class TaskBrowser:
 
 
 async def _semantics(session: _Session, *, modal: bool = False) -> dict[str, Any]:
-    return await session.read("""(modal) => {
+    return await session.read(
+        """(modal) => {
       const checks = [];
       function check(id, tag, name, type, shouldShow) {
         const matches = document.querySelectorAll('#' + id);
@@ -370,11 +441,15 @@ async def _semantics(session: _Session, *, modal: bool = False) -> dict[str, Any
         document.getElementById('dialog-heading')?.textContent === 'Notification settings' &&
         dialog.open === modal;
       return {passed: structure && checks.every(c => c.passed), structure, controls: checks};
-    }""", modal)
+    }""",
+        modal,
+    )
 
 
 async def evaluate_source(
-    source: str, *, phase: Literal["development", "holdout"] = "development",
+    source: str,
+    *,
+    phase: Literal["development", "holdout"] = "development",
     artifact_dir: Path | None = None,
 ) -> EvaluationReport:
     started = time.perf_counter()
@@ -388,21 +463,39 @@ async def evaluate_source(
         raise ValueError("Unknown evaluation phase")
 
     def gate(name: str, passed: bool, expected: Any, actual: Any, detail: str = "") -> None:
-        gates.append(GateResult(name=name, passed=passed, expected=expected, actual=actual, detail=detail))
+        gates.append(
+            GateResult(name=name, passed=passed, expected=expected, actual=actual, detail=detail)
+        )
 
     async def press(session: _Session, case: str, key: str) -> None:
         await session.page.keyboard.press(key)
         await _settle(session, 180)
-        actions.append({"case": case, "kind": "press", "value": key,
-                        "focus": await session.read("() => document.activeElement.id || document.activeElement.tagName"),
-                        "request_count": len(session.writes), "stored_name": session.stored_name})
+        actions.append(
+            {
+                "case": case,
+                "kind": "press",
+                "value": key,
+                "focus": await session.read(
+                    "() => document.activeElement.id || document.activeElement.tagName"
+                ),
+                "request_count": len(session.writes),
+                "stored_name": session.stored_name,
+            }
+        )
 
     async def type_name(session: _Session, case: str, value: str) -> None:
         await press(session, case, "Control+A")
         await session.page.keyboard.insert_text(value)
         await _settle(session, 180)
-        actions.append({"case": case, "kind": "type", "value": value,
-                        "request_count": len(session.writes), "stored_name": session.stored_name})
+        actions.append(
+            {
+                "case": case,
+                "kind": "type",
+                "value": value,
+                "request_count": len(session.writes),
+                "stored_name": session.stored_name,
+            }
+        )
 
     async def axe(session: _Session, case: str) -> None:
         # CDP compiles trusted vendored code directly in our private world. No
@@ -416,8 +509,12 @@ async def evaluate_source(
             passes: result.passes.length, incomplete: result.incomplete.map(v => v.id)};
         }""")
         violations.extend(f"{case}: {v['id']}" for v in result["violations"])
-        gate(case + ".axe", not result["violations"] and result["passes"] > 0,
-             "No WCAG A/AA violations; axe ran real checks", result)
+        gate(
+            case + ".axe",
+            not result["violations"] and result["passes"] > 0,
+            "No WCAG A/AA violations; axe ran real checks",
+            result,
+        )
 
     async def capture(session: _Session, case: str) -> None:
         if artifact_dir is not None:
@@ -429,22 +526,36 @@ async def evaluate_source(
     async def quiet_window(session: _Session, case: str) -> None:
         before = len(session.writes)
         await _settle(session, _QUIET_WINDOW_MS)
-        actions.append({
-            "case": case, "kind": "quiet_window", "virtual_duration_ms": _QUIET_WINDOW_MS,
-            "request_count_before": before, "request_count": len(session.writes),
-            "stored_name": session.stored_name, "errors": list(session.errors),
-            "blocked": list(session.blocked),
-        })
+        actions.append(
+            {
+                "case": case,
+                "kind": "quiet_window",
+                "virtual_duration_ms": _QUIET_WINDOW_MS,
+                "request_count_before": before,
+                "request_count": len(session.writes),
+                "stored_name": session.stored_name,
+                "errors": list(session.errors),
+                "blocked": list(session.blocked),
+            }
+        )
 
     async def save_case(browser: Browser, case: str, activation: str, values: list[str]) -> None:
         session = await _new_session(browser, source)
         try:
             page = session.page
             initial = await _semantics(session)
-            gate(case + ".semantics.initial", initial["passed"], "Original visible native controls", initial)
-            gate(case + ".reset", not session.writes and session.stored_name == INITIAL_NAME,
-                 {"request_count": 0, "display_name": INITIAL_NAME},
-                 {"request_count": len(session.writes), "display_name": session.stored_name})
+            gate(
+                case + ".semantics.initial",
+                initial["passed"],
+                "Original visible native controls",
+                initial,
+            )
+            gate(
+                case + ".reset",
+                not session.writes and session.stored_name == INITIAL_NAME,
+                {"request_count": 0, "display_name": INITIAL_NAME},
+                {"request_count": len(session.writes), "display_name": session.stored_name},
+            )
             if case == "keyboard":
                 await axe(session, case)
             await press(session, case, "Tab")
@@ -455,38 +566,79 @@ async def evaluate_source(
                     await press(session, case, "Shift+Tab")
                 before = len(session.writes)
                 await type_name(session, case, value)
-                gate(f"{case}.{index}.edit_without_save", len(session.writes) == before,
-                     before, len(session.writes), "Typing must not trigger persistence")
+                gate(
+                    f"{case}.{index}.edit_without_save",
+                    len(session.writes) == before,
+                    before,
+                    len(session.writes),
+                    "Typing must not trigger persistence",
+                )
                 await press(session, case, "Tab")
                 focus = await session.read("() => document.activeElement.id")
                 gate(f"{case}.{index}.save_focus", focus == "save-name", "save-name", focus)
                 if activation == "pointer":
                     await page.get_by_role("button", name="Save changes", exact=True).click()
                     await _settle(session, 180)
-                    actions.append({"case": case, "kind": "pointer", "target": "Save changes",
-                                    "request_count": len(session.writes), "stored_name": session.stored_name})
+                    actions.append(
+                        {
+                            "case": case,
+                            "kind": "pointer",
+                            "target": "Save changes",
+                            "request_count": len(session.writes),
+                            "stored_name": session.stored_name,
+                        }
+                    )
                 else:
                     await press(session, case, activation)
                 await quiet_window(session, case)
                 delta = session.writes[before:]
                 expected = {"display_name": value, "request_count": 1}
-                actual = {"display_name": session.stored_name, "request_count": len(delta), "requests": delta}
-                gate(f"{case}.{index}.persist_exactly_once",
-                     len(delta) == 1 and delta[0]["accepted"] and delta[0]["payload"] == {"display_name": value}
-                     and session.stored_name == value, expected, actual,
-                     "Python-owned request ledger, not page success text")
+                actual = {
+                    "display_name": session.stored_name,
+                    "request_count": len(delta),
+                    "requests": delta,
+                }
+                gate(
+                    f"{case}.{index}.persist_exactly_once",
+                    len(delta) == 1
+                    and delta[0]["accepted"]
+                    and delta[0]["payload"] == {"display_name": value}
+                    and session.stored_name == value,
+                    expected,
+                    actual,
+                    "Python-owned request ledger, not page success text",
+                )
                 semantic = await _semantics(session)
-                gate(f"{case}.{index}.semantics.after", semantic["passed"], "Visible enabled native controls", semantic)
+                gate(
+                    f"{case}.{index}.semantics.after",
+                    semantic["passed"],
+                    "Visible enabled native controls",
+                    semantic,
+                )
             await quiet_window(session, case)
             settled = await _semantics(session)
-            gate(case + ".semantics.settled", settled["passed"], "Controls preserved after quiet window", settled)
+            gate(
+                case + ".semantics.settled",
+                settled["passed"],
+                "Controls preserved after quiet window",
+                settled,
+            )
             await axe(session, case + ".settled")
             await capture(session, case)
-            gate(case + ".total_requests", len(session.writes) == len(values), len(values), len(session.writes))
-            gate(case + ".runtime", not session.errors and not session.blocked,
-                 "No script errors or blocked navigation/network", {"errors": session.errors, "blocked": session.blocked})
+            gate(
+                case + ".total_requests",
+                len(session.writes) == len(values),
+                len(values),
+                len(session.writes),
+            )
+            gate(
+                case + ".runtime",
+                not session.errors and not session.blocked,
+                "No script errors or blocked navigation/network",
+                {"errors": session.errors, "blocked": session.blocked},
+            )
         finally:
-            await session.context.close()
+            await _close_preserving_error(session.context.close, sys.exception())
 
     async def modal_case(browser: Browser, case: str, opener_key: str, closer: str) -> None:
         session = await _new_session(browser, source)
@@ -497,7 +649,12 @@ async def evaluate_source(
             gate(case + ".opener_focus", focus == "open-notifications", "open-notifications", focus)
             await press(session, case, opener_key)
             semantic = await _semantics(session, modal=True)
-            gate(case + ".semantics", semantic["passed"], "Visible named native modal and controls", semantic)
+            gate(
+                case + ".semantics",
+                semantic["passed"],
+                "Visible named native modal and controls",
+                semantic,
+            )
             focus = await session.read("() => document.activeElement.id")
             gate(case + ".initial_focus", focus == "weekly-summary", "weekly-summary", focus)
             await axe(session, case)
@@ -512,32 +669,53 @@ async def evaluate_source(
                 await press(session, case, "Tab")
                 focus = await session.read("() => document.activeElement.id")
             gate(case + ".trap_forward", focus == "weekly-summary", "weekly-summary", focus)
-            checked_before = await session.read("() => document.getElementById('weekly-summary').checked")
+            checked_before = await session.read(
+                "() => document.getElementById('weekly-summary').checked"
+            )
             await press(session, case, "Space")
-            checked_after = await session.read("() => document.getElementById('weekly-summary').checked")
-            gate(case + ".checkbox_toggle", checked_after != checked_before,
-                 not checked_before, checked_after)
+            checked_after = await session.read(
+                "() => document.getElementById('weekly-summary').checked"
+            )
+            gate(
+                case + ".checkbox_toggle",
+                checked_after != checked_before,
+                not checked_before,
+                checked_after,
+            )
             await press(session, case, "Shift+Tab")
             focus = await session.read("() => document.activeElement.id")
             if focus == "":
                 await press(session, case, "Shift+Tab")
                 focus = await session.read("() => document.activeElement.id")
-            gate(case + ".trap_reverse", focus == "close-notifications", "close-notifications", focus)
+            gate(
+                case + ".trap_reverse", focus == "close-notifications", "close-notifications", focus
+            )
             await capture(session, case)
             await press(session, case, closer)
-            closed = not await session.read("() => document.getElementById('notifications-dialog').open")
+            closed = not await session.read(
+                "() => document.getElementById('notifications-dialog').open"
+            )
             focus = await session.read("() => document.activeElement.id")
             gate(case + ".closed", closed, True, closed)
             gate(case + ".focus_return", focus == "open-notifications", "open-notifications", focus)
             await quiet_window(session, case)
             settled = await _semantics(session)
-            gate(case + ".semantics.settled", settled["passed"], "Closed modal and preserved controls after quiet window", settled)
+            gate(
+                case + ".semantics.settled",
+                settled["passed"],
+                "Closed modal and preserved controls after quiet window",
+                settled,
+            )
             await axe(session, case + ".settled")
             gate(case + ".no_profile_writes", not session.writes, 0, len(session.writes))
-            gate(case + ".runtime", not session.errors and not session.blocked,
-                 "No script errors or blocked navigation/network", {"errors": session.errors, "blocked": session.blocked})
+            gate(
+                case + ".runtime",
+                not session.errors and not session.blocked,
+                "No script errors or blocked navigation/network",
+                {"errors": session.errors, "blocked": session.blocked},
+            )
         finally:
-            await session.context.close()
+            await _close_preserving_error(session.context.close, sys.exception())
 
     try:
         _check_source(source)
@@ -550,33 +728,54 @@ async def evaluate_source(
             try:
                 if phase == "development":
                     cases = [
-                        ("keyboard", save_case(browser, "keyboard", "Enter", ["Jordan Lee"])),
-                        ("pointer", save_case(browser, "pointer", "pointer", ["Taylor Reed"])),
-                        ("modal_escape", modal_case(browser, "modal_escape", "Enter", "Escape")),
-                        ("modal_done", modal_case(browser, "modal_done", "Enter", "Enter")),
+                        (save_case, "keyboard", "Enter", ["Jordan Lee"]),
+                        (save_case, "pointer", "pointer", ["Taylor Reed"]),
+                        (modal_case, "modal_escape", "Enter", "Escape"),
+                        (modal_case, "modal_done", "Enter", "Enter"),
                     ]
                 else:
                     cases = [
-                        ("keyboard", save_case(browser, "keyboard", "Space", ["Riley Chen", "Riley Chen", "Samira O’Neill"])),
-                        ("pointer", save_case(browser, "pointer", "pointer", ["Noor Patel", INITIAL_NAME])),
-                        ("modal_escape", modal_case(browser, "modal_escape", "Space", "Escape")),
-                        ("modal_done", modal_case(browser, "modal_done", "Space", "Space")),
+                        (
+                            save_case,
+                            "keyboard",
+                            "Space",
+                            ["Riley Chen", "Riley Chen", "Samira O’Neill"],
+                        ),
+                        (save_case, "pointer", "pointer", ["Noor Patel", INITIAL_NAME]),
+                        (modal_case, "modal_escape", "Space", "Escape"),
+                        (modal_case, "modal_done", "Space", "Space"),
                     ]
-                for name, case_coroutine in cases:
+                for run_case, name, activation, argument in cases:
                     try:
                         async with asyncio.timeout(25):
-                            await case_coroutine
+                            await run_case(browser, name, activation, argument)
                     except Exception as exc:
                         message = f"{name}: {type(exc).__name__}: {str(exc)[:1800]}"
                         errors.append(message)
-                        gate(name + ".execution", False, "Case completes in bounded Chromium session", message)
+                        gate(
+                            name + ".execution",
+                            False,
+                            "Case completes in bounded Chromium session",
+                            message,
+                        )
             finally:
-                await browser.close()
+                await _close_preserving_error(browser.close, sys.exception())
     except Exception as exc:
         errors.append(f"{type(exc).__name__}: {str(exc)[-1800:]}")
-        gate("oracle.available", False, "Network namespace, Chromium sandbox and vendored axe available", errors[-1])
+        gate(
+            "oracle.available",
+            False,
+            "Network namespace, Chromium sandbox and vendored axe available",
+            errors[-1],
+        )
     return EvaluationReport(
-        phase=phase, passed=bool(gates) and all(item.passed for item in gates) and not errors,
-        gates=gates, source_hash=digest, elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
-        actions=actions, axe_violations=violations, errors=errors, artifacts=artifacts,
+        phase=phase,
+        passed=bool(gates) and all(item.passed for item in gates) and not errors,
+        gates=gates,
+        source_hash=digest,
+        elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
+        actions=actions,
+        axe_violations=violations,
+        errors=errors,
+        artifacts=artifacts,
     )

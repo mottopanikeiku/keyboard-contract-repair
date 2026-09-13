@@ -62,6 +62,7 @@ class Usage(Contract):
     output_tokens: int | None = None
     cached_input_tokens: int | None = None
     elapsed_ms: float = 0
+    complete: bool = True
 
 
 class RunConfig(Contract):
@@ -99,6 +100,7 @@ class WeaveStatus(Contract):
     enabled: bool = False
     project: str | None = None
     url: str | None = None
+    evaluation_url: str | None = None
     error: str | None = None
 
 

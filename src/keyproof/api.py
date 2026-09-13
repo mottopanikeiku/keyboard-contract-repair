@@ -1,6 +1,5 @@
 """Loopback-only UI and evidence API; candidate pages never share its origin privileges."""
 
-import hashlib
 import os
 import shutil
 from contextlib import asynccontextmanager
@@ -13,12 +12,19 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from keyproof.contracts import RunConfig
+from keyproof.challenges import PresetId, challenge_catalog
+from keyproof.contracts import Contract, RunConfig
+from keyproof.report import render_report
 from keyproof.service import RunService
-from keyproof.storage import default_data_dir
+from keyproof.storage import default_data_dir, verified_capture_path
 from keyproof.telemetry import Telemetry
 
 WEB_DIR = Path(__file__).parent / "web"
+
+
+class ChallengeRequest(Contract):
+    preset_id: PresetId
+    require_weave: bool = True
 
 
 def create_app(data_dir: Path | None = None) -> FastAPI:
@@ -45,9 +51,13 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             if origin:
                 parsed = urlsplit(origin)
                 if parsed.netloc != request.url.netloc or parsed.scheme != request.url.scheme:
-                    return JSONResponse({"detail": "Cross-origin mutations are not allowed"}, status_code=403)
+                    return JSONResponse(
+                        {"detail": "Cross-origin mutations are not allowed"}, status_code=403
+                    )
             if request.headers.get("sec-fetch-site") == "cross-site":
-                return JSONResponse({"detail": "Cross-site mutations are not allowed"}, status_code=403)
+                return JSONResponse(
+                    {"detail": "Cross-site mutations are not allowed"}, status_code=403
+                )
             if request.headers.get("content-type", "").split(";", 1)[0] != "application/json":
                 return JSONResponse({"detail": "Use application/json"}, status_code=415)
         response = await call_next(request)
@@ -72,6 +82,22 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         except FileNotFoundError:
             raise HTTPException(404, "Run not found") from None
 
+    def get_comparison(request: Request, comparison_id: str):
+        try:
+            return service(request).comparison(comparison_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        except FileNotFoundError:
+            raise HTTPException(404, "Comparison not found") from None
+
+    def get_challenge(request: Request, challenge_id: str):
+        try:
+            return service(request).store.get_challenge(challenge_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        except FileNotFoundError:
+            raise HTTPException(404, "Challenge not found") from None
+
     @app.get("/", response_class=HTMLResponse)
     async def dashboard():
         return FileResponse(WEB_DIR / "index.html")
@@ -84,7 +110,9 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         return {
             "provider": {
                 "codex_available": shutil.which("codex") is not None,
-                "openai_configured": bool(os.environ.get("KEYPROOF_API_KEY") or os.environ.get("OPENAI_API_KEY")),
+                "openai_configured": bool(
+                    os.environ.get("KEYPROOF_API_KEY") or os.environ.get("OPENAI_API_KEY")
+                ),
             },
             "weave": current.telemetry.status.model_dump(mode="json"),
             "fixture": {"title": "Harbor workspace settings", "task": TASK_SPEC},
@@ -94,13 +122,18 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     @app.post("/api/telemetry/connect")
     async def connect_weave(request: Request):
         current = service(request)
-        if current.busy:
-            raise HTTPException(409, "Connect W&B between runs, not while a candidate is changing.")
-        return (await current.telemetry.connect()).model_dump(mode="json")
+        try:
+            return (await current.reconnect()).model_dump(mode="json")
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc)) from None
 
     @app.get("/api/runs")
     async def runs(request: Request):
-        return {"runs": [record.model_dump(mode="json") for record in service(request).store.list_runs()]}
+        return {
+            "runs": [
+                record.model_dump(mode="json") for record in service(request).store.list_runs()
+            ]
+        }
 
     @app.post("/api/runs", status_code=202)
     async def start_run(config: RunConfig, request: Request):
@@ -113,6 +146,10 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
     async def run(run_id: str, request: Request):
         return get_record(request, run_id).model_dump(mode="json")
 
+    @app.get("/api/comparisons")
+    async def comparisons(request: Request):
+        return {"comparisons": service(request).store.list_comparisons()}
+
     @app.post("/api/comparisons", status_code=202)
     async def start_comparison(config: RunConfig, request: Request):
         try:
@@ -123,31 +160,86 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @app.get("/api/comparisons/{comparison_id}")
     async def comparison(comparison_id: str, request: Request):
+        return get_comparison(request, comparison_id)
+
+    @app.get("/api/comparisons/{comparison_id}/report", response_class=HTMLResponse)
+    async def comparison_report(comparison_id: str, request: Request):
+        result = get_comparison(request, comparison_id)
+        captures = service(request).store.comparison_screenshots(result)
+        return HTMLResponse(
+            render_report(result, captures),
+            headers={
+                "Content-Disposition": f'attachment; filename="keyproof-{comparison_id}.html"'
+            },
+        )
+
+    @app.get("/api/challenges")
+    async def challenges(request: Request):
+        fields = {"challenge_id", "preset_id", "status", "verdict", "created_at", "finished_at"}
+        return {
+            "presets": challenge_catalog(),
+            "runs": [
+                record.model_dump(mode="json", include=fields)
+                for record in service(request).store.list_challenges()
+            ],
+        }
+
+    @app.post("/api/challenges", status_code=202)
+    async def start_challenge(config: ChallengeRequest, request: Request):
         try:
-            return service(request).comparison(comparison_id)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from None
-        except FileNotFoundError:
-            raise HTTPException(404, "Comparison not found") from None
+            return (
+                service(request)
+                .submit_challenge(
+                    config.preset_id,
+                    require_weave=config.require_weave,
+                )
+                .model_dump(mode="json")
+            )
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from None
+
+    @app.get("/api/challenges/{challenge_id}")
+    async def challenge(challenge_id: str, request: Request):
+        return get_challenge(request, challenge_id).model_dump(mode="json")
+
+    @app.get("/api/challenges/{challenge_id}/preview/{phase}")
+    async def challenge_preview(
+        challenge_id: str,
+        phase: Literal["development", "holdout"],
+        request: Request,
+    ):
+        record = get_challenge(request, challenge_id)
+        report = record.development_report if phase == "development" else record.holdout_report
+        if record.frozen_at is None:
+            raise HTTPException(409, "The candidate has not been frozen")
+        path = verified_capture_path(
+            report,
+            record.candidate_source,
+            service(request).store.challenge_dir(challenge_id),
+            phase=phase,
+        )
+        if report is not None and report.source_hash == record.source_hash and path is not None:
+            return FileResponse(path, media_type="image/png")
+        raise HTTPException(409, "No source-matched evaluator capture is available")
 
     @app.get("/api/preview/{run_id}/{variant}")
     async def preview(run_id: str, variant: Literal["original", "final"], request: Request):
         record = get_record(request, run_id)
         report = record.initial_report if variant == "original" else record.final_report
         source = record.original_source if variant == "original" else record.final_source
-        frozen = any(event.role == "controller" and event.kind == "frozen" for event in record.events)
+        frozen = any(
+            event.role == "controller" and event.kind == "frozen" for event in record.events
+        )
         if report is None or (variant == "final" and not frozen):
             raise HTTPException(409, "No evaluated capture is available for this candidate")
-        if hashlib.sha256(source.encode()).hexdigest() != report.source_hash:
-            raise HTTPException(409, "Capture does not correspond to the recorded source")
-        root = service(request).store.run_dir(run_id).resolve()
-        for artifact in report.artifacts:
-            path = Path(artifact).resolve()
-            if (
-                path.is_relative_to(root) and path.name.endswith("-keyboard.png")
-                and path.is_file()
-            ):
-                return FileResponse(path, media_type="image/png")
+        path = verified_capture_path(
+            report,
+            source,
+            service(request).store.run_dir(run_id),
+            phase="development",
+        )
+        if path is not None:
+            return FileResponse(path, media_type="image/png")
         raise HTTPException(409, "The evaluator has not retained a keyboard capture")
 
     @app.get("/api/artifacts/{run_id}/{filename:path}")

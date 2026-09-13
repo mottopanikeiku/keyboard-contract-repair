@@ -7,15 +7,29 @@
   const knownUsage = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
   const sourceHashes = new Map();
   const previews = new Map();
+  const requestedComparison = new URL(location.href).searchParams.get("comparison");
+  const requestedChallenge = new URL(location.href).searchParams.get("challenge");
   const state = {
     status: null,
     statusFresh: false,
     runs: new Map(),
     pendingIds: new Set(),
     selectedId: null,
-    comparisonId: null,
+    comparisonId: /^[a-f0-9]{32}$/.test(requestedComparison || "") ? requestedComparison : null,
     comparison: null,
+    comparisons: [],
+    presets: [],
+    challenges: [],
+    challengeId: /^[a-f0-9]{32}$/.test(requestedChallenge || "") ? requestedChallenge : null,
+    challenge: null,
+    challengePaused: false,
+    challengeReconcile: false,
+    challengeLoading: false,
+    libraryLoaded: false,
+    libraryRefreshing: false,
+    challengeAnnounced: "",
     starting: false,
+    connecting: false,
     refreshing: false,
     errors: new Map(),
     signatures: new Map(),
@@ -73,10 +87,18 @@
     if (state.signatures.get(id) === serialized) return;
     const container = $(id);
     const scrollPositions = Array.from(container.querySelectorAll(".timeline, .source, .diff, .table-scroll"), (node) => [node.scrollTop, node.scrollLeft]);
+    const focused = container.contains(document.activeElement) ? document.activeElement : null;
+    const focusKey = focused?.dataset.focusKey;
+    const focusText = focused?.tagName === "SUMMARY" ? focused.textContent : null;
     container.replaceChildren(build());
     Array.from(container.querySelectorAll(".timeline, .source, .diff, .table-scroll")).forEach((node, index) => {
       if (scrollPositions[index]) [node.scrollTop, node.scrollLeft] = scrollPositions[index];
     });
+    if (focused) {
+      const replacement = Array.from(container.querySelectorAll("button, a, summary")).find((node) =>
+        focusKey ? node.dataset.focusKey === focusKey : focusText && node.tagName === "SUMMARY" && node.textContent === focusText);
+      replacement?.focus({ preventScroll: true });
+    }
     state.signatures.set(id, serialized);
   }
 
@@ -126,7 +148,7 @@
   }
 
   function isBusy() {
-    return state.starting || state.pendingIds.size > 0 || Boolean(state.status?.busy) || Array.from(state.runs.values()).some(active);
+    return state.starting || state.connecting || state.pendingIds.size > 0 || Boolean(state.status?.busy) || active(state.challenge) || state.challenges.some(active) || Array.from(state.runs.values()).some(active);
   }
 
   function renderReadiness() {
@@ -143,6 +165,8 @@
     $("status-weave-link").replaceChildren(...(link ? [link] : []));
     $("local-choice").hidden = !status || Boolean(weave.enabled);
     $("weave-error").textContent = weave?.error || "";
+    $("connect-weave").hidden = Boolean(weave?.enabled);
+    $("connect-weave").disabled = isBusy() || !state.statusFresh;
     if (status?.fixture) {
       $("fixture-title").textContent = status.fixture.title;
       $("fixture-task").textContent = status.fixture.task;
@@ -153,7 +177,7 @@
       blocker = "A current server readiness check is required before starting.";
       blocked = true;
     } else if (isBusy()) {
-      blocker = "A run or comparison is in progress. New runs are paused to avoid overlap.";
+      blocker = "The controller is busy. New operations are paused to avoid overlap.";
       blocked = true;
     } else if (!available) {
       blocker = `${providerName} is unavailable. Select a configured provider or configure it on the server.`;
@@ -167,13 +191,15 @@
     $("run-blocker").textContent = blocker;
     $("run-repair").disabled = blocked;
     $("run-comparison").disabled = blocked;
-    $("busy-status").textContent = !state.statusFresh ? "Connection unavailable" : isBusy() ? "Run in progress" : "Ready for a run";
+    $("busy-status").textContent = !state.statusFresh ? "Connection unavailable" : isBusy() ? "Controller busy" : "Ready for a run";
+    renderChallengeReadiness();
   }
 
   function selectRun(id) {
     state.selectedId = id;
     renderHistory();
     renderRun();
+    $("workspace").focus({ preventScroll: true });
     refresh();
   }
 
@@ -187,8 +213,9 @@
         const button = element("button", "history-item");
         button.type = "button";
         button.setAttribute("aria-pressed", String(run.run_id === state.selectedId));
+        button.dataset.focusKey = `run:${run.run_id}`;
         const top = element("span", "history-item-top");
-        top.append(element("span", "", `${human(run.config.mode)} repair`), tag(human(run.status), run.status));
+        top.append(element("span", "", `${human(run.config.mode)} repair`), tag(`${active(run) ? "Live" : "Recorded"} · ${human(run.status)}`, run.status));
         button.append(top, element("small", "", dateText(run.started_at)), element("small", "mono", run.run_id));
         button.addEventListener("click", () => selectRun(run.run_id));
         list.append(button);
@@ -200,13 +227,27 @@
   function renderReport(report, label, key, pendingText) {
     const block = element("section", "report-block");
     const heading = element("div", "report-heading");
-    heading.append(element("h3", "", label), report ? tag(report.passed ? "Pass" : "Fail", report.passed ? "pass" : "fail") : tag("Not evaluated", "pending"));
+    heading.append(element("h3", "", label), report ? tag(report.errors?.length ? "Evaluator error" : report.passed === true ? "Pass" : report.passed === false ? "Fail" : "Unknown", report.errors?.length || report.passed === false ? "fail" : report.passed === true ? "pass" : "pending") : tag("Not evaluated", "pending"));
     block.append(heading);
     if (!report) {
       block.append(element("p", "muted", pendingText));
       return block;
     }
     if (report.gates.length) {
+      const failures = report.gates.filter((gate) => !gate.passed);
+      block.append(element("p", "field-note", `${report.gates.length - failures.length} / ${report.gates.length} gates passed.`));
+      if (failures.length) {
+        const failed = element("ul", "error-list");
+        failures.slice(0, 3).forEach((gate) => failed.append(element("li", "", `${human(gate.name)}${gate.detail ? ` — ${gate.detail}` : ""}`)));
+        block.append(failed);
+        if (failures.length > 3) {
+          const remaining = disclosure(`${failures.length - 3} more failed gates`, `${key}:failures`);
+          const list = element("ul", "error-list");
+          failures.slice(3).forEach((gate) => list.append(element("li", "", `${human(gate.name)}${gate.detail ? ` — ${gate.detail}` : ""}`)));
+          remaining.append(list);
+          block.append(remaining);
+        }
+      }
       const scroll = element("div", "table-scroll");
       const table = element("table", "gate-table");
       table.setAttribute("aria-label", `${label} gate results`);
@@ -233,7 +274,9 @@
       }
       table.append(thead, tbody);
       scroll.append(table);
-      block.append(scroll);
+      const gates = disclosure(`Inspect all ${report.gates.length} gates and exact evidence`, `${key}:gates`);
+      gates.append(scroll);
+      block.append(gates);
     } else {
       block.append(element("p", "muted", "No individual gates were reported. Read evaluator errors before interpreting this result."));
     }
@@ -281,6 +324,8 @@
     } else {
       weave.textContent = run.config.require_weave ? "Weave required, but not enabled for this record. No sponsor-integration claim." : "Explicit local-only execution · not sponsor-integrated.";
     }
+    const evaluationLink = weaveLink(run.weave.evaluation_url, "Open published Weave evaluation");
+    if (run.weave.enabled && evaluationLink) weave.append(document.createTextNode(" · "), evaluationLink);
     fragment.append(weave);
     if (run.weave.error) fragment.append(notice(`Weave: ${run.weave.error}`, "warning"));
     if (run.errors.length) fragment.append(errorList(run.errors));
@@ -296,7 +341,7 @@
       const meta = element("div", "event-meta");
       meta.append(element("span", "mono", `#${event.sequence}`), tag(event.role), element("span", "", human(event.kind)), element("time", "", dateText(event.timestamp)));
       item.append(meta, element("p", "event-summary", event.summary));
-      if (Object.keys(event.data).length) item.append(dataDisclosure("Event data", event.data, `${run.run_id}:event:${event.sequence}`));
+      if (Object.keys(event.data || {}).length) item.append(dataDisclosure("Event data", event.data, `${run.run_id || run.challenge_id}:event:${event.sequence}`));
       list.append(item);
     }
     return list;
@@ -304,18 +349,22 @@
 
   function renderUsage(run) {
     const fragment = document.createDocumentFragment();
+    if (run.usage.complete === false) {
+      fragment.append(element("p", "notice", "Incomplete totals: only observed usage is shown below. An in-flight request may not be included."));
+    }
     const list = element("dl", "usage-list");
     for (const [field, label, suffix] of [
       ["calls", "Model calls", ""],
       ["input_tokens", "Input tokens", ""],
       ["output_tokens", "Output tokens", ""],
       ["cached_input_tokens", "Cached input tokens", ""],
-      ["elapsed_ms", "Reported elapsed time", " ms"],
+      ["elapsed_ms", "Model request time", " ms"],
     ]) {
       const value = run.usage[field];
       const unknown = !knownUsage(value);
       const row = element("div");
-      row.append(element("dt", "", label), element("dd", unknown ? "unknown" : "", unknown ? "Unknown / not reported" : `${value}${suffix}`));
+      const displayed = unknown ? "Unknown / not reported" : `${run.usage.complete === false ? "At least " : ""}${value}${suffix}`;
+      row.append(element("dt", "", label), element("dd", unknown ? "unknown" : "", displayed));
       list.append(row);
     }
     fragment.append(list, element("p", "field-note", "Unknown values stay unknown, never zero-filled. Tokens are not converted to cost, energy, or carbon estimates."));
@@ -383,6 +432,7 @@
     }).finally(() => {
       renderRun();
       renderComparison();
+      renderChallenge();
     });
     return evidence;
   }
@@ -420,14 +470,14 @@
     $(`${id}-empty`).textContent = message;
   }
 
-  async function setPreview(id, run, phase, report, eligible, missing) {
+  async function setPreview(id, run, phase, report, eligible, missing, endpoint = null) {
     if (!eligible) {
       clearPreview(id, missing);
       return;
     }
-    const key = `${run.run_id}:${report.source_hash}`;
+    const key = `${endpoint || run.run_id}:${phase}:${report.source_hash}:${JSON.stringify(report.artifacts || [])}`;
     const prior = previews.get(id);
-    if (prior?.key === key && (prior.loading || prior.url)) return;
+    if (prior?.key === key) return;
     clearPreview(id, prior?.key === key ? prior.message : "Loading the evaluator PNG. No capture is displayed yet.");
     const entry = { key, controller: new AbortController(), loading: true, url: null };
     previews.set(id, entry);
@@ -438,7 +488,7 @@
       previews.set(id, { ...entry, loading: false, url: null, message });
     };
     try {
-      const response = await fetch(`/api/preview/${encodeURIComponent(run.run_id)}/${phase}`, {
+      const response = await fetch(endpoint || `/api/preview/${encodeURIComponent(run.run_id)}/${phase}`, {
         headers: { Accept: "image/png" },
         signal: AbortSignal.any([entry.controller.signal, AbortSignal.timeout(20000)]),
         cache: "no-store",
@@ -457,7 +507,7 @@
       if (!current()) return;
       entry.url = URL.createObjectURL(blob);
       const image = $(id);
-      image.alt = `${phase === "original" ? "Original fixture" : "Frozen final candidate"} in run ${run.run_id}, captured by the isolated evaluator. Keyboard outcomes are reported in the gates, not this image.`;
+      image.alt = `${endpoint ? `Challenge ${phase} candidate` : phase === "original" ? "Original fixture" : "Frozen final candidate"} in record ${run.run_id || run.challenge_id}, captured by the isolated evaluator. Keyboard outcomes are reported in the gates, not this image.`;
       image.onload = () => {
         if (!current()) return;
         entry.loading = false;
@@ -489,7 +539,7 @@
     const hashes = hashesFor(run);
     const hasFrozen = frozen(run, hashes);
     $("run-evidence").hidden = false;
-    $("selection-status").textContent = human(run.status);
+    $("selection-status").textContent = `${active(run) ? "Live execution" : "Recorded evidence"} · ${human(run.status)}`;
     $("selection-status").className = `tag ${run.status}`;
     mount("run-overview", [run.run_id, run.status, run.config, run.started_at, run.finished_at, run.events.at(-1), run.weave, run.errors], () => renderOverview(run));
     mount("reports", [run.run_id, run.status, run.initial_report, run.final_report, run.holdout_report, hasFrozen], () => {
@@ -505,6 +555,7 @@
     mount("timeline", [run.run_id, run.status, run.events], () => renderTimeline(run));
     mount("usage", [run.run_id, run.usage], () => renderUsage(run));
     mount("iterations", [run.run_id, run.status, run.iterations], () => renderIterations(run));
+    mount("agent-flow", [run.run_id, run.iterations, run.events, hasFrozen], () => renderAgentFlow(run, hasFrozen));
     if ($("original-source").textContent !== run.original_source) $("original-source").textContent = run.original_source || "No original source was recorded.";
     $("final-source-title").textContent = hasFrozen ? "Frozen final behavior.js" : "Recorded behavior.js / freeze not verified";
     if ($("final-source").textContent !== run.final_source) $("final-source").textContent = run.final_source || "No final source was recorded.";
@@ -525,90 +576,62 @@
     if (!state.comparisonId) return;
     const comparison = state.comparison;
     if (!comparison) {
-      mount("comparison-content", [state.comparisonId, "pending"], () => element("p", "muted", "Comparison accepted. Waiting for the two actual run records…"));
+      mount("comparison-content", [state.comparisonId, "pending"], () => element("p", "muted", "Loading this comparison's actual run records. No prior comparison is shown."));
       return;
     }
     const hashes = comparison.results.map(hashesFor);
     mount("comparison-content", [comparison, hashes], () => {
       const fragment = document.createDocumentFragment();
-      fragment.append(element("p", "comparison-status", `Comparison ${comparison.comparison_id} · ${human(comparison.status)}`));
+      fragment.append(tag(active(comparison) ? "LIVE EXECUTION / actual controller state" : "RECORDED EVIDENCE / not a live rerun", active(comparison) ? "running" : ""), element("p", "comparison-status", `Comparison ${comparison.comparison_id} · ${human(comparison.status)}`));
       const team = comparison.results.find((run) => run.config.mode === "team");
       const single = comparison.results.find((run) => run.config.mode === "single");
       const configFields = ["provider", "model", "max_iterations", "max_model_calls", "max_output_tokens", "max_input_tokens", "require_weave"];
-      const limits = ["max_iterations", "max_model_calls", "max_output_tokens", "max_input_tokens"];
-      const configKnown = (run) => run && typeof run.config.provider === "string" && Boolean(run.config.provider.trim()) &&
-        typeof run.config.model === "string" && Boolean(run.config.model.trim()) &&
-        typeof run.config.require_weave === "boolean" &&
-        limits.every((key) => knownUsage(run.config[key]) && run.config[key] > 0);
-      const knownConfig = Boolean(configKnown(team) && configKnown(single));
-      const matched = Boolean(knownConfig && configFields.every((key) => team.config[key] === single.config[key]));
-      const reports = (run) => [run.initial_report, run.final_report, run.holdout_report].filter(Boolean);
-      const sourceMismatch = (run) => {
-        const evidence = hashesFor(run);
-        return evidence.status === "ready" && [
-          [run.initial_report, evidence.originalHash],
-          [run.final_report, evidence.finalHash],
-          [run.holdout_report, evidence.finalHash],
-        ].some(([report, hash]) => report && (!hash || report.source_hash !== hash));
-      };
-      let result = "No data / awaiting independent heldout reports";
-      let description = "No win, tie, or loss can be assigned before both frozen candidates have independent heldout evidence.";
-      if (active(comparison) || comparison.results.some(active)) {
-        result = "Unavailable / comparison in progress";
-        description = "Queued or running records are not final evidence. Wait for both frozen candidates and completed independent evaluations.";
-      } else if (comparison.status === "failed" || comparison.errors?.length ||
-        comparison.results.some((run) => run.status === "failed" || run.errors?.length)) {
-        result = "Unavailable / comparison or run errors";
-        description = "Execution errors cannot establish a repair-mode win, tie, or loss. Inspect the failed records and their retained evidence.";
-      } else if (comparison.results.some((run) => reports(run).some((report) => report.errors?.length))) {
-        result = "Unavailable / evaluator errors";
-        description = "An evaluator report contains errors. An evaluator failure is not evidence of a repair-mode win or loss.";
-      } else if (team && single && !knownConfig) {
-        result = "Unknown / configuration not fully reported";
-        description = "An explicit shared model, provider, integration setting, and finite positive resource limits are required for a resource-matched verdict.";
-      } else if (team && single && !matched) {
-        result = "No fair verdict / configuration mismatch";
-        description = "The recorded configurations are not matched. These results cannot be presented as a fair paired comparison.";
-      } else if (team && single && (!team.original_source || team.original_source !== single.original_source)) {
-        result = "No fair verdict / original source mismatch";
-        description = "The runs must start from the same known recorded source. Matched resource limits alone are insufficient.";
-      } else if (comparison.results.some(sourceMismatch)) {
-        result = "No fair verdict / evaluator source mismatch";
-        description = "An evaluator source hash does not match its recorded source snapshot. These reports cannot establish a frozen-candidate outcome.";
-      } else if (comparison.status !== "completed" || !team || !single ||
-        comparison.results.length !== 2 || comparison.run_ids.length !== 2 ||
-        team.run_id === single.run_id || !comparison.run_ids.includes(team.run_id) || !comparison.run_ids.includes(single.run_id)) {
-        result = "Unavailable / paired records incomplete";
-        description = "A completed comparison must identify exactly one team record and one single record.";
-      } else if (!["completed", "budget_exhausted"].includes(team.status) || !["completed", "budget_exhausted"].includes(single.status) ||
-        hashes.some((evidence) => evidence.status !== "ready") ||
-        !frozen(team, hashesFor(team)) || !frozen(single, hashesFor(single)) ||
-        !team.initial_report || !single.initial_report || !team.holdout_report || !single.holdout_report) {
-        result = "Unavailable / frozen evidence not verified";
-        description = "Both runs need controller freeze events, source-matched development and heldout reports, and verifiable source hashes. A recorded final_source alone is not proof of freezing.";
-      } else if (![team, single].every((run) => ["calls", "input_tokens", "output_tokens"].every((key) => knownUsage(run.usage?.[key])))) {
-        result = "Unknown / resource usage not fully reported";
-        description = "A resource-matched verdict requires finite known model-call, input-token, and output-token usage for both runs. Missing usage is never inferred as zero.";
-      } else if (typeof team.holdout_report.passed === "boolean" && typeof single.holdout_report.passed === "boolean") {
-        const teamPass = team.holdout_report.passed;
-        const singlePass = single.holdout_report.passed;
-        result = teamPass === singlePass ? `Tie / ${teamPass ? "both pass" : "neither passes"} the heldout contract` : teamPass ? "Team win / heldout contract outcome" : "Team loss / single passes the heldout contract";
-        description = "This verdict compares only the reported full-contract pass/fail outcome in this one pair. It is not a statistical result or evidence that one mode is generally superior.";
-      }
-      fragment.append(element("p", "comparison-result", result), element("p", "muted", description));
-      fragment.append(element("p", "field-note", "One pair is not evidence of general superiority. Budget exhaustion alone does not invalidate measured evidence when both frozen holdouts and resource usage are known; the reported heldout contract determines the outcome."));
+      const assessment = comparison.assessment;
+      const labels = { team: "Team passes; single does not", single: "Single passes; team does not", tie: "Tie / both candidates pass", neither: "Neither candidate passes", unavailable: "No comparable verdict" };
+      fragment.append(element("p", "comparison-result", labels[assessment?.verdict] || "Assessment unavailable"),
+        element("p", "muted", assessment?.reason || "The server has not supplied an authoritative assessment. No client-side winner is inferred."),
+        element("p", "field-note", assessment?.caveat || "One pair is not evidence of general superiority."));
+      if (assessment) fragment.append(tag(assessment.comparable ? "Comparable recorded pair" : "Not comparable", assessment.comparable ? "" : "pending"));
       if (comparison.errors?.length) fragment.append(errorList(comparison.errors));
+      const scores = element("div", "pair-scores");
+      for (const [mode, run] of [["Team", team], ["Single", single]]) {
+        const card = element("section", "pair-score");
+        card.append(element("h3", "", mode));
+        for (const [field, label] of [["final_report", "Development"], ["holdout_report", "Sealed holdout"]]) {
+          const report = run?.[field];
+          const line = element("p", "", `${label}: `);
+          line.append(tag(!report ? "Not evaluated" : report.errors?.length ? "Evaluator error" : report.passed === true ? "Pass" : report.passed === false ? "Fail" : "Unknown",
+            !report ? "pending" : report.errors?.length || report.passed === false ? "fail" : report.passed === true ? "pass" : "pending"));
+          card.append(line);
+        }
+        const usage = element("dl");
+        for (const [key, label] of [["calls", "Actual model calls"], ["input_tokens", "Input tokens"], ["output_tokens", "Output tokens"]]) {
+          const row = element("div");
+          row.append(element("dt", "", label), element("dd", "", knownUsage(run?.usage?.[key]) ? `${run.usage.complete === false ? "At least " : ""}${exact(run.usage[key])}` : "Unknown"));
+          usage.append(row);
+        }
+        card.append(usage);
+        if (run?.usage?.complete === false) card.append(element("p", "field-note", "Incomplete totals / observed usage only."));
+        scores.append(card);
+      }
+      fragment.append(scores);
       const links = element("div", "comparison-links");
       for (const [index, id] of comparison.run_ids.entries()) {
         const run = comparison.results.find((item) => item.run_id === id);
         const button = element("button", "button secondary small", `Inspect ${run ? run.config.mode : index === 0 ? "team" : "single"}${run ? ` · ${human(run.status)}` : " · pending"}`);
         button.type = "button";
+        button.dataset.focusKey = `inspect:${id}`;
         button.addEventListener("click", () => selectRun(id));
         links.append(button);
       }
+      const reportLink = element("a", "button secondary small", "Download evidence report");
+      reportLink.href = `/api/comparisons/${encodeURIComponent(comparison.comparison_id)}/report`;
+      reportLink.download = `keyproof-${comparison.comparison_id}.html`;
+      reportLink.dataset.focusKey = "comparison-report";
+      links.append(reportLink);
       fragment.append(links);
       const table = element("table", "comparison-config");
-      table.append(element("caption", "", team && single ? !knownConfig ? "Recorded configuration / required values unknown" : matched ? "Matched configured limits (actual usage may differ)" : "Recorded configuration mismatch" : "Recorded configuration / waiting for both runs"));
+      table.append(element("caption", "", "Recorded configuration and measured outcomes / verdict supplied by the server"));
       const head = element("thead");
       const header = element("tr");
       for (const title of ["Setting / evidence", "Team", "Single"]) {
@@ -631,16 +654,291 @@
         row(label, verdict(team), verdict(single));
       }
       row("Verified frozen source", team ? frozen(team, hashesFor(team)) ? "Verified" : "Not verified" : "Pending", single ? frozen(single, hashesFor(single)) ? "Verified" : "Not verified" : "Pending");
-      for (const [key, label] of [["calls", "Model calls"], ["input_tokens", "Input tokens"], ["output_tokens", "Output tokens"], ["cached_input_tokens", "Cached input tokens"], ["elapsed_ms", "Elapsed milliseconds"]]) {
-        const usage = (run) => knownUsage(run?.usage?.[key]) ? exact(run.usage[key]) : "Unknown / not reported";
+      for (const [key, label] of [["calls", "Model calls"], ["input_tokens", "Input tokens"], ["output_tokens", "Output tokens"], ["cached_input_tokens", "Cached input tokens"], ["elapsed_ms", "Model request milliseconds"]]) {
+        const usage = (run) => knownUsage(run?.usage?.[key]) ? `${run.usage.complete === false ? "At least " : ""}${exact(run.usage[key])}` : "Unknown / not reported";
         row(label, usage(team), usage(single));
       }
       table.append(head, body);
       const scroll = element("div", "table-scroll");
       scroll.append(table);
-      fragment.append(scroll, element("p", "field-note", "Equal configured limits do not imply equal actual usage. Unknown token counts stay unknown. Inspect each run for all gates, errors, source hashes, and Weave links."));
+      const details = disclosure("Inspect configured limits, phase results & actual usage", `${comparison.comparison_id}:comparison-config`);
+      details.append(scroll, element("p", "field-note", "Equal configured limits do not imply equal actual usage. Unknown token counts stay unknown. Inspect each run for all gates, errors, source hashes, and Weave links."));
+      fragment.append(details);
       return fragment;
     });
+  }
+
+  function renderAgentFlow(run, hasFrozen) {
+    const list = element("ol", "stage-list");
+    const audits = run.iterations.filter((item) => item.audit).length;
+    const patches = run.iterations.filter((item) => item.patch).length;
+    const accepted = run.iterations.filter((item) => item.accepted).length;
+    const rejected = run.iterations.filter((item) => item.decision && !item.accepted).length;
+    for (const [label, evidence] of [
+      ["Audit", `${audits} recorded audits`],
+      ["Patch", `${patches} recorded proposals`],
+      ["Accept / reject", `${accepted} accepted · ${rejected} rejected`],
+      ["Freeze + holdout", hasFrozen ? run.holdout_report ? "Frozen source verified · holdout reported" : "Frozen source verified · holdout not reported" : "Freeze not verified"],
+    ]) {
+      const item = element("li");
+      item.append(element("strong", "", label), element("span", "", evidence));
+      list.append(item);
+    }
+    return list;
+  }
+
+  function renderChallengeReadiness() {
+    const consentNeeded = Boolean(state.status && !state.status.weave.enabled && !$("local-only").checked);
+    let message = "Ready: freeze this candidate, then run both independent evaluations. No model calls.";
+    if (!state.statusFresh) message = "A current server readiness check is required.";
+    else if (isBusy()) message = "Controller busy. A new challenge waits until the current operation finishes.";
+    else if (!state.presets.length) message = "The server has not supplied a challenge catalog.";
+    else if (consentNeeded) message = "Weave is unavailable. Explicit local-only consent is required below.";
+    else if (!state.status.weave.enabled) message = "Ready for explicit local-only evaluation / not sponsor-integrated. No model calls.";
+    $("challenge-blocker").textContent = message;
+    $("challenge-consent").hidden = !consentNeeded;
+    $("run-challenge").disabled = !state.statusFresh || isBusy() || !state.presets.length || consentNeeded;
+    $("challenge-preset").disabled = !state.presets.length || state.starting;
+    const preset = state.presets.find((item) => item.preset_id === $("challenge-preset").value);
+    $("challenge-description").textContent = preset?.description || "No candidate description is available.";
+  }
+
+  function renderLibrary() {
+    $("refresh-evidence").disabled = state.libraryRefreshing;
+    mount("challenge-preset", state.presets, () => {
+      const fragment = document.createDocumentFragment();
+      const selected = $("challenge-preset").value;
+      if (!state.presets.length) fragment.append(element("option", "", "No catalog available"));
+      for (const preset of state.presets) {
+        const option = element("option", "", preset.title);
+        option.value = preset.preset_id;
+        option.selected = preset.preset_id === selected;
+        fragment.append(option);
+      }
+      return fragment;
+    });
+    mount("comparison-history", [state.comparisons, state.comparisonId], () => {
+      if (!state.comparisons.length) return element("p", "muted", state.errors.has("Comparison library") ? "The comparison library could not be loaded. Retry the connection; no replacement evidence is invented." : "No retained pairs yet. Run a matched comparison below to create real evidence.");
+      const list = element("div", "recording-grid");
+      for (const comparison of [...state.comparisons].sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)))) {
+        const button = element("button", "history-item recording-card");
+        button.type = "button";
+        button.dataset.focusKey = `comparison:${comparison.comparison_id}`;
+        button.setAttribute("aria-pressed", String(comparison.comparison_id === state.comparisonId));
+        button.append(tag(active(comparison) ? "Live execution" : "Recorded evidence", active(comparison) ? "running" : ""),
+          element("strong", "", `Team vs. single · ${human(comparison.status)}`),
+          element("small", "", dateText(comparison.started_at)),
+          element("small", "mono", comparison.comparison_id),
+          element("span", "recording-action", "Open the actual pair →"));
+        button.addEventListener("click", () => selectComparison(comparison.comparison_id));
+        list.append(button);
+      }
+      return list;
+    });
+    mount("challenge-history", [state.challenges, state.challengeId], () => {
+      if (!state.challenges.length) return element("p", "muted", state.errors.has("Challenge library") ? "Challenge history unavailable. Retry the connection." : "No attempts recorded yet.");
+      const list = element("div", "history-list");
+      for (const run of [...state.challenges].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))) {
+        const button = element("button", "history-item");
+        button.type = "button";
+        button.dataset.focusKey = `challenge:${run.challenge_id}`;
+        button.setAttribute("aria-pressed", String(run.challenge_id === state.challengeId));
+        button.append(element("strong", "", state.presets.find((item) => item.preset_id === run.preset_id)?.title || human(run.preset_id)),
+          element("small", "", `${active(run) ? "Live" : "Recorded"} · ${human(run.status)} · ${human(run.verdict)}`),
+          element("small", "", dateText(run.created_at)));
+        button.addEventListener("click", () => selectChallenge(run.challenge_id));
+        list.append(button);
+      }
+      return list;
+    });
+    renderChallengeReadiness();
+  }
+
+  async function loadLibrary() {
+    if (state.libraryRefreshing) return;
+    state.libraryRefreshing = true;
+    $("refresh-evidence").disabled = true;
+    await Promise.all([
+      (async () => {
+        try {
+          const result = await request("/api/comparisons");
+          state.comparisons = result.comparisons;
+          state.errors.delete("Comparison library");
+        } catch (error) { failure("Comparison library", error); }
+      })(),
+      (async () => {
+        try {
+          const result = await request("/api/challenges");
+          state.presets = result.presets;
+          state.challenges = result.runs;
+          state.errors.delete("Challenge library");
+        } catch (error) { failure("Challenge library", error); }
+      })(),
+    ]);
+    state.libraryLoaded = true;
+    state.libraryRefreshing = false;
+    renderLibrary();
+    renderErrors();
+  }
+
+  async function selectComparison(id) {
+    state.comparisonId = id;
+    state.comparison = null;
+    state.errors.delete("Comparison");
+    const url = new URL(location.href);
+    url.searchParams.set("comparison", id);
+    history.replaceState(null, "", url);
+    renderComparison();
+    renderLibrary();
+    $("comparison-panel").focus();
+    await refresh();
+  }
+
+  async function selectChallenge(id) {
+    state.challengeId = id;
+    state.challenge = null;
+    state.challengePaused = false;
+    state.challengeReconcile = false;
+    state.errors.delete("Challenge");
+    const url = new URL(location.href);
+    url.searchParams.set("challenge", id);
+    history.replaceState(null, "", url);
+    renderChallenge();
+    renderLibrary();
+    $("challenge-evidence").focus();
+    await refreshChallenge();
+  }
+
+  function renderChallenge() {
+    const run = state.challenge;
+    $("challenge-details").hidden = !run;
+    if (!run) {
+      for (const phase of ["development", "holdout"]) clearPreview(`challenge-${phase}-preview`, "No source-matched challenge capture is available.");
+      if (state.challengeId) mount("challenge-overview", [state.challengeId, state.challengePaused], () => notice(state.challengePaused ? "Challenge loading paused after a request error. Use Retry connection to reconcile the record." : "Loading the selected challenge. No previous attempt is shown."));
+      return;
+    }
+    const hash = hashForSource(run.candidate_source);
+    const verified = Boolean(run.frozen_at && hash.hash && hash.hash === run.source_hash);
+    mount("challenge-overview", [run, hash, state.challengePaused], () => {
+      const fragment = document.createDocumentFragment();
+      const preset = state.presets.find((item) => item.preset_id === run.preset_id);
+      fragment.append(tag(active(run) ? state.challengePaused ? "LIVE STATE UNKNOWN / polling paused" : "LIVE EVALUATION" : "RECORDED EVIDENCE / not a live rerun", active(run) ? "running" : ""),
+        element("h3", "challenge-candidate-title", preset?.title || human(run.preset_id)));
+      const verdicts = { not_evaluated: "No verdict yet", accepted: "Accepted by the contract", rejected: "Rejected by the contract", error: "Evaluator / execution error" };
+      fragment.append(element("p", "challenge-verdict", verdicts[run.verdict] || "Unknown verdict"), element("p", "field-note", `Controller: ${human(run.status)} · Curated adversarial sample · ${run.challenge_id}`));
+      const stages = element("ol", "challenge-stages");
+      for (const [label, value] of [
+        ["Frozen candidate", run.frozen_at ? verified ? "Source verified" : hash.status === "pending" ? "Checking source hash" : "Source not verified" : "Not frozen"],
+        ["Development", run.development_report ? "Report recorded" : "Not evaluated"],
+        ["Sealed holdout", run.holdout_report ? "Report revealed" : "Not evaluated"],
+      ]) {
+        const item = element("li");
+        item.append(element("strong", "", label), element("span", "", value));
+        stages.append(item);
+      }
+      fragment.append(stages);
+      if (state.challengePaused) fragment.append(notice("Polling paused after a request error. The last known evidence remains visible, not live. Use Retry connection to reconcile.", "warning"));
+      else if (active(run)) fragment.append(notice(run.events.at(-1)?.summary || "Queued. Waiting for the first recorded evaluator event."));
+      if (run.frozen_at && hash.status !== "pending" && !verified) fragment.append(notice("Candidate source verification failed. No capture is displayed; do not treat this record as verified frozen evidence.", "error"));
+      fragment.append(element("p", "field-note", `Created ${dateText(run.created_at)} · Frozen ${dateText(run.frozen_at)}${run.finished_at ? ` · Finished ${dateText(run.finished_at)}` : ""}`));
+      const telemetry = element("p", "field-note", run.weave?.enabled ? "Weave enabled. " : "Local-only record / not sponsor-integrated. ");
+      const trace = weaveLink(run.weave?.url);
+      if (trace) telemetry.append(trace);
+      const evaluationLink = weaveLink(run.weave?.evaluation_url, "Open published Weave evaluation");
+      if (run.weave?.enabled && evaluationLink) telemetry.append(document.createTextNode(" · "), evaluationLink);
+      if (run.weave?.error) telemetry.append(document.createTextNode(` ${run.weave.error}`));
+      fragment.append(telemetry);
+      if (run.errors?.length) fragment.append(errorList(run.errors));
+      return fragment;
+    });
+    mount("challenge-reports", [run.challenge_id, run.development_report, run.holdout_report, verified], () => {
+      const fragment = document.createDocumentFragment();
+      for (const [phase, title] of [["development", "Development / fixed candidate"], ["holdout", "Sealed holdout / never repair feedback"]]) {
+        const report = run[`${phase}_report`];
+        if (report && (!verified || report.source_hash !== hash.hash)) {
+          fragment.append(notice(`${title}: report source is not verified against the frozen candidate. This report cannot prove this candidate's outcome.`, "warning"));
+        }
+        fragment.append(renderReport(report, title, `${run.challenge_id}:${phase}`, phase === "holdout" ? "Sealed checks have not reported. The candidate must freeze before evaluation; no passing outcome is implied." : "Waiting for the frozen candidate's development report."));
+      }
+      return fragment;
+    });
+    mount("challenge-diff", [run.challenge_id, run.source_diff], () => run.source_diff ? renderDiff(run.source_diff) : element("p", "muted", "No change from the recorded original source."));
+    $("challenge-source").textContent = run.candidate_source;
+    $("challenge-original").textContent = run.original_source;
+    $("challenge-hash").textContent = `Frozen SHA-256: ${run.source_hash || "Not reported"} · ${verified ? "Matches candidate source" : "Not verified"}`;
+    $("challenge-events-label").textContent = `Recorded event ledger / ${run.events.length} events`;
+    mount("challenge-events", [run.challenge_id, run.events], () => renderTimeline(run));
+    for (const phase of ["development", "holdout"]) {
+      const report = run[`${phase}_report`];
+      setPreview(`challenge-${phase}-preview`, run, phase, report, Boolean(verified && report && report.source_hash === hash.hash),
+        "No verified source-matched evaluator capture for this phase. No substitute image is shown.",
+        `/api/challenges/${encodeURIComponent(run.challenge_id)}/preview/${phase}`);
+    }
+    const announcement = `${run.challenge_id}:${run.status}:${run.verdict}:${run.events.length}:${state.challengePaused}`;
+    if (announcement !== state.challengeAnnounced) {
+      $("announcer").textContent = `Challenge ${human(run.preset_id)}: ${state.challengePaused ? "polling paused, last known state" : human(run.status)}. ${human(run.verdict)}. ${run.events.at(-1)?.summary || ""}`;
+      state.challengeAnnounced = announcement;
+    }
+  }
+
+  async function refreshChallenge() {
+    const id = state.challengeId;
+    if (!id || state.challengeLoading || state.challengePaused || (state.challenge && !active(state.challenge) && !state.challengeReconcile)) return;
+    state.challengeLoading = true;
+    try {
+      const run = await request(`/api/challenges/${encodeURIComponent(id)}`);
+      if (state.challengeId !== id) return;
+      state.challengeReconcile = !active(run) && (!state.challenge || active(state.challenge));
+      state.challenge = run;
+      state.challenges = [run, ...state.challenges.filter((item) => item.challenge_id !== id)];
+      state.errors.delete("Challenge");
+      if (!active(run)) state.libraryLoaded = false;
+    } catch (error) {
+      if (state.challengeId === id) {
+        state.challengePaused = true;
+        failure("Challenge", error);
+      }
+    } finally {
+      state.challengeLoading = false;
+      renderChallenge();
+      renderLibrary();
+      renderReadiness();
+      renderErrors();
+    }
+  }
+
+  async function startChallenge(event) {
+    event.preventDefault();
+    renderChallengeReadiness();
+    if ($("run-challenge").disabled) return;
+    state.starting = true;
+    renderReadiness();
+    state.errors.delete("Challenge start");
+    try {
+      const result = await request("/api/challenges", { method: "POST", body: JSON.stringify({
+        preset_id: $("challenge-preset").value,
+        require_weave: Boolean(state.status?.weave.enabled) || !$("local-only").checked,
+      }) });
+      state.challengeId = result.challenge_id;
+      state.challenge = result;
+      state.challengePaused = false;
+      state.challengeReconcile = !active(result);
+      state.challenges = [result, ...state.challenges.filter((item) => item.challenge_id !== result.challenge_id)];
+      const url = new URL(location.href);
+      url.searchParams.set("challenge", result.challenge_id);
+      history.replaceState(null, "", url);
+      state.libraryLoaded = false;
+      renderChallenge();
+      $("challenge-evidence").focus();
+    } catch (error) {
+      failure("Challenge start", error);
+    } finally {
+      state.starting = false;
+      state.statusFresh = false;
+      renderErrors();
+      renderReadiness();
+      await refresh();
+    }
   }
 
   async function refresh() {
@@ -672,6 +970,8 @@
         }
       })(),
     ];
+    if (!state.libraryLoaded || (!state.challengePaused && state.challenges.some(active)) || state.comparisons.some(active)) work.push(loadLibrary());
+    work.push(refreshChallenge());
     await Promise.all(work);
     if (selectedId) await (async () => {
       try {
@@ -688,6 +988,7 @@
         if (state.comparisonId === comparisonId) {
           state.comparison = comparison;
           for (const run of comparison.results) state.runs.set(run.run_id, run);
+          state.comparisons = [comparison, ...state.comparisons.filter((item) => item.comparison_id !== comparisonId)];
           state.errors.delete("Comparison");
         }
       } catch (error) {
@@ -703,6 +1004,8 @@
       renderHistory();
       renderRun();
       renderComparison();
+      renderChallenge();
+      renderLibrary();
     } finally {
       state.refreshing = false;
     }
@@ -735,6 +1038,9 @@
       const result = await request(comparison ? "/api/comparisons" : "/api/runs", { method: "POST", body: JSON.stringify(config) });
       if (comparison) {
         state.comparisonId = result.comparison_id;
+        const url = new URL(location.href);
+        url.searchParams.set("comparison", result.comparison_id);
+        history.replaceState(null, "", url);
         state.comparison = null;
         state.selectedId = result.run_ids[0];
         result.run_ids.forEach((id) => state.pendingIds.add(id));
@@ -742,6 +1048,7 @@
         state.selectedId = result.run_id;
         state.pendingIds.add(result.run_id);
       }
+      state.libraryLoaded = false;
       // The server accepted work. Keep start controls blocked until readiness is refreshed.
       state.statusFresh = false;
       $("announcer").textContent = comparison ? "Comparison accepted. Waiting for team and single run evidence." : "Repair accepted. Waiting for recorded evidence.";
@@ -765,13 +1072,62 @@
   $("run-comparison").addEventListener("click", () => start(true));
   $("provider").addEventListener("change", renderReadiness);
   $("local-only").addEventListener("change", renderReadiness);
-  $("retry").addEventListener("click", () => refresh());
+  $("retry").addEventListener("click", () => {
+    state.challengePaused = false;
+    state.challengeReconcile = true;
+    state.libraryLoaded = false;
+    for (const [id, preview] of previews) if (!preview.loading && !preview.url) clearPreview(id, "Retrying verified capture.");
+    refresh();
+  });
+  $("challenge-form").addEventListener("submit", startChallenge);
+  $("challenge-preset").addEventListener("change", renderChallengeReadiness);
+  $("refresh-evidence").addEventListener("click", () => loadLibrary());
+  for (const [id, host, imageIds] of [
+    ["refresh-challenge-captures", $("challenge-captures"), ["challenge-development-preview", "challenge-holdout-preview"]],
+    ["refresh-run-captures", $("previews-title").parentElement, ["original-preview", "final-preview"]],
+  ]) {
+    const button = element("button", "text-button", "Refresh verified captures");
+    button.type = "button";
+    button.id = id;
+    button.addEventListener("click", () => {
+      imageIds.forEach((imageId) => clearPreview(imageId, "Refreshing source-matched evaluator capture."));
+      renderRun();
+      renderChallenge();
+    });
+    if (host.tagName === "DETAILS") host.firstElementChild.after(button);
+    else host.append(button);
+  }
+  window.addEventListener("pagehide", () => {
+    for (const id of previews.keys()) clearPreview(id, "Capture released.");
+  });
+  $("connect-weave").addEventListener("click", async () => {
+    if (isBusy()) return;
+    state.connecting = true;
+    renderReadiness();
+    try {
+      const result = await request("/api/telemetry/connect", { method: "POST", body: "{}" });
+      state.errors.delete("Telemetry");
+      $("announcer").textContent = result.enabled ? "Weave connected." : result.error || "Weave is not connected.";
+    } catch (error) {
+      failure("Telemetry", error);
+    } finally {
+      state.connecting = false;
+      await refresh();
+      renderReadiness();
+    }
+  });
   $("close-comparison").addEventListener("click", () => {
     state.comparisonId = null;
+    const url = new URL(location.href);
+    url.searchParams.delete("comparison");
+    history.replaceState(null, "", url);
     state.comparison = null;
     state.errors.delete("Comparison");
     renderErrors();
     renderComparison();
+    renderLibrary();
+    $("recorded-title").tabIndex = -1;
+    $("recorded-title").focus();
   });
   refresh();
   window.setInterval(() => refresh(), 1100);

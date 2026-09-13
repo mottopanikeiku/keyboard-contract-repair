@@ -3,18 +3,28 @@
 import asyncio
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 import weave
 
 from keyproof.contracts import RunRecord, WeaveStatus
 
+if TYPE_CHECKING:
+    from keyproof.challenges import ChallengeRun
+
 
 def redact(value: Any) -> Any:
     """Never send configured credentials through a trace or error payload."""
     if isinstance(value, dict):
-        sensitive = {"api_key", "authorization", "password", "access_token", "refresh_token", "secret"}
+        sensitive = {
+            "api_key",
+            "authorization",
+            "password",
+            "access_token",
+            "refresh_token",
+            "secret",
+        }
         return {
             key: "[redacted]" if str(key).lower() in sensitive else redact(item)
             for key, item in value.items()
@@ -27,6 +37,22 @@ def redact(value: Any) -> Any:
                 if len(secret) >= 8:
                     value = value.replace(secret, "[redacted]")
     return value
+
+
+def trace_agent_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Trace task data, never live browser connections or credential-bearing clients."""
+    result = {
+        key: value
+        for key, value in inputs.items()
+        if key not in {"self", "client", "browser", "emit", "on_update", "response"}
+    }
+    client = inputs.get("client") or inputs.get("self")
+    if client is not None and hasattr(client, "identity"):
+        result["provider"] = client.identity
+    response = inputs.get("response")
+    if response is not None:
+        result["response_schema"] = response.model_json_schema()
+    return result
 
 
 @weave.op()
@@ -61,22 +87,55 @@ class FrozenCandidate(weave.Model):
         return (await evaluate_source(self.source, phase=phase)).model_dump(mode="json")
 
 
-def frozen_evaluation(record: RunRecord) -> weave.Evaluation:
+def _evaluation(name: str, metadata: dict[str, Any]) -> weave.Evaluation:
     return weave.Evaluation(
         name="keyproof-keyboard-contract-v1",
-        evaluation_name=f"{record.config.mode}-{record.run_id[:8]}",
+        evaluation_name=name,
         dataset=weave.Dataset(
             name="keyproof-keyboard-contract-v1",
             rows=[{"phase": "development"}, {"phase": "holdout"}],
         ),
         scorers=[behavioral_contract],
         metadata={
+            **metadata,
+            "claim": "owned fixture task correctness, not accessibility certification",
+        },
+    )
+
+
+def frozen_evaluation(record: RunRecord) -> weave.Evaluation:
+    return _evaluation(
+        f"{record.config.mode}-{record.run_id[:8]}",
+        {
             "run_id": record.run_id,
             "mode": record.config.mode,
             "source_hash": record.final_report.source_hash if record.final_report else None,
             "config": record.config.model_dump(mode="json"),
-            "claim": "owned fixture task correctness, not accessibility certification",
         },
+    )
+
+
+@weave.op(postprocess_inputs=trace_agent_inputs)
+async def execute_frozen_evaluation(record: RunRecord) -> dict[str, Any]:
+    return await frozen_evaluation(record).evaluate(
+        FrozenCandidate(name="keyproof-frozen-candidate", source=record.final_source)
+    )
+
+
+@weave.op(postprocess_inputs=trace_agent_inputs)
+async def execute_challenge_evaluation(record: "ChallengeRun") -> dict[str, Any]:
+    evaluation = _evaluation(
+        f"challenge-{record.preset_id}-{record.challenge_id[:8]}",
+        {
+            "challenge_id": record.challenge_id,
+            "preset_id": record.preset_id,
+            "origin": record.origin,
+            "source_hash": record.source_hash,
+            "frozen_at": record.frozen_at,
+        },
+    )
+    return await evaluation.evaluate(
+        FrozenCandidate(name="keyproof-frozen-candidate", source=record.candidate_source)
     )
 
 
@@ -143,13 +202,26 @@ class Telemetry:
         These are extra verification executions, not extra repair opportunities or model calls.
         The caller must freeze BOTH comparison candidates before invoking this method.
         """
+        return await self._verified_evaluation(execute_frozen_evaluation, record)
+
+    async def evaluate_challenge(self, record: "ChallengeRun") -> dict[str, Any]:
+        return await self._verified_evaluation(execute_challenge_evaluation, record)
+
+    async def _verified_evaluation(self, operation: Any, record: Any) -> dict[str, Any]:
         if not self.status.enabled:
             raise RuntimeError("Cannot publish an evaluation without a verified Weave connection")
-        result = await frozen_evaluation(record).evaluate(
-            FrozenCandidate(name="keyproof-frozen-candidate", source=record.final_source)
-        )
+        result, call = await operation.call(record)
+        if call.exception is not None or not isinstance(result, dict):
+            raise RuntimeError("Weave evaluation did not complete successfully")
         await asyncio.to_thread(self.client.flush)
-        return result
+        retrieved = await asyncio.to_thread(self.client.get_call, call.id)
+        if retrieved.id != call.id or retrieved.ended_at is None or retrieved.exception is not None:
+            raise RuntimeError("Completed evaluation trace delivery was not verified")
+        return {
+            "summary": result,
+            "call_id": retrieved.id,
+            "evaluation_url": retrieved.ui_url,
+        }
 
     async def close(self) -> None:
         if self.client is not None:
