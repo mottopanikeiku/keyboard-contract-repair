@@ -1,0 +1,874 @@
+{
+  "schema_version": 1,
+  "origin": "actual_model_and_browser_executions",
+  "scope": "One owned synthetic profile workflow with three predeclared faulty implementations; not accessibility certification or statistical generalization.",
+  "protocol": [
+    "Challenger proposes bounded keyboard interaction plans; Python owns assertions and persistence observations.",
+    "Admission requires two distinct error-free failing browser replays, each with a separate edit-only control.",
+    "Two training variants precede frozen-memory transfer; no new Challenger probes on transfer and no holdout feedback in model prompts.",
+    "The successful warm run follows a process restart and independent revalidation of saved cold-run memory.",
+    "One cold run and one completed warm rerun do not establish a speed or general model-superiority claim; the failed warm attempt is retained."
+  ],
+  "implementation_references": {
+    "learning_milestone": "0cb075f1389f2bdd786624e52f791bab4904c124",
+    "responsive_evaluator": "a9104a88b085bcc27a20592b6d3c335d162510bf",
+    "note": "Reviewed implementation references, not runtime checkout attestations. Exact candidate source and executable probe hashes are retained in every run."
+  },
+  "runs": {
+    "cold": {
+      "learning_id": "4ff89dd433644fd7b44d1902c9aee6b6",
+      "status": "completed",
+      "verdict": "transfer_verified",
+      "created_at": "2026-09-13T06:10:39.718351+00:00",
+      "finished_at": "2026-09-13T06:16:28.993251+00:00",
+      "config": {
+        "mode": "team",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "max_iterations": 3,
+        "max_model_calls": 12,
+        "max_output_tokens": 6000,
+        "max_input_tokens": 180000,
+        "require_weave": false,
+        "memory_run_id": null
+      },
+      "usage": {
+        "calls": 4,
+        "input_tokens": 118787,
+        "output_tokens": 1410,
+        "cached_input_tokens": 0,
+        "elapsed_ms": 111109.36363099609,
+        "complete": true
+      },
+      "memory_hash": "05050000e7e930f880ca534cf368f670ceede81c78823da4b1ad0a33cb21dee6",
+      "memory_frozen_at": "2026-09-13T06:14:53.717054+00:00",
+      "transfer_source_revealed_at": "2026-09-13T06:14:53.781555+00:00",
+      "memory_entries": 1,
+      "challenger_calls": 1,
+      "revalidated_entries": 0,
+      "cases": [
+        {
+          "case_id": "deferred_read",
+          "partition": "training",
+          "status": "completed",
+          "original_source_hash": "7e2c7c20b7716e95180d3eb5de25b9f1f456f38474117e93df2dfdbccfaafc81",
+          "initial_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "7e2c7c20b7716e95180d3eb5de25b9f1f456f38474117e93df2dfdbccfaafc81",
+            "errors": []
+          },
+          "initial_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "7e2c7c20b7716e95180d3eb5de25b9f1f456f38474117e93df2dfdbccfaafc81",
+            "errors": []
+          },
+          "initial_memory": [],
+          "model_generated_proposals": [
+            {
+              "plan": {
+                "name": "Deferred read across rapid saves",
+                "hypothesis": "A delayed save may read the field only when its timer fires, causing an earlier activation to persist a later edited value instead of the exact name present at activation.",
+                "steps": [
+                  {
+                    "kind": "edit",
+                    "value": "Mira Chen"
+                  },
+                  {
+                    "kind": "save",
+                    "value": "Space"
+                  },
+                  {
+                    "kind": "edit",
+                    "value": "Noah Patel"
+                  },
+                  {
+                    "kind": "save",
+                    "value": "Enter"
+                  },
+                  {
+                    "kind": "wait",
+                    "value": "6000"
+                  }
+                ]
+              },
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": false,
+              "expected_names": [
+                "Mira Chen",
+                "Noah Patel"
+              ],
+              "observed_requests": [
+                {
+                  "method": "POST",
+                  "payload": {
+                    "display_name": "Noah Patel"
+                  },
+                  "accepted": true
+                },
+                {
+                  "method": "POST",
+                  "payload": {
+                    "display_name": "Noah Patel"
+                  },
+                  "accepted": true
+                }
+              ],
+              "failed_gates": [
+                "persistence.requests"
+              ]
+            }
+          ],
+          "accepted_repairs": 1,
+          "final_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": true,
+              "errors": []
+            }
+          ],
+          "errors": []
+        },
+        {
+          "case_id": "busy_drop",
+          "partition": "training",
+          "status": "completed",
+          "original_source_hash": "3bbd4be53678147832ec1bb8822cc1137a5dbcb479f0d89ef36ce8b1088b4c48",
+          "initial_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "3bbd4be53678147832ec1bb8822cc1137a5dbcb479f0d89ef36ce8b1088b4c48",
+            "errors": []
+          },
+          "initial_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "3bbd4be53678147832ec1bb8822cc1137a5dbcb479f0d89ef36ce8b1088b4c48",
+            "errors": []
+          },
+          "initial_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": false,
+              "expected_names": [
+                "Mira Chen",
+                "Noah Patel"
+              ],
+              "observed_requests": [
+                {
+                  "method": "POST",
+                  "payload": {
+                    "display_name": "Mira Chen"
+                  },
+                  "accepted": true
+                }
+              ],
+              "failed_gates": [
+                "persistence.requests",
+                "persistence.stored_name"
+              ],
+              "errors": []
+            }
+          ],
+          "model_generated_proposals": [],
+          "accepted_repairs": 1,
+          "final_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": true,
+              "errors": []
+            }
+          ],
+          "errors": []
+        },
+        {
+          "case_id": "trailing_debounce",
+          "partition": "transfer",
+          "status": "completed",
+          "original_source_hash": "bae2e34fb07236295f70590727e063007c1ca26714842fae85490c6d90ddd651",
+          "initial_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "bae2e34fb07236295f70590727e063007c1ca26714842fae85490c6d90ddd651",
+            "errors": []
+          },
+          "initial_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "bae2e34fb07236295f70590727e063007c1ca26714842fae85490c6d90ddd651",
+            "errors": []
+          },
+          "initial_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": false,
+              "expected_names": [
+                "Mira Chen",
+                "Noah Patel"
+              ],
+              "observed_requests": [
+                {
+                  "method": "POST",
+                  "payload": {
+                    "display_name": "Noah Patel"
+                  },
+                  "accepted": true
+                }
+              ],
+              "failed_gates": [
+                "persistence.requests"
+              ],
+              "errors": []
+            }
+          ],
+          "model_generated_proposals": [],
+          "accepted_repairs": 1,
+          "final_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "5e4665b21641dfb96a653b248ef711b5126098dfd8d052b28f033433fedc2ff8",
+            "errors": []
+          },
+          "final_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "5e4665b21641dfb96a653b248ef711b5126098dfd8d052b28f033433fedc2ff8",
+            "errors": []
+          },
+          "final_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": true,
+              "errors": []
+            }
+          ],
+          "errors": []
+        }
+      ],
+      "errors": [],
+      "weave": {
+        "enabled": false,
+        "project": "keyproof",
+        "url": null,
+        "evaluation_url": null,
+        "error": "No W&B credentials are visible to this process. Run `uv run keyproof login` under the same Linux account, then reconnect. A key exported in another terminal is not inherited by this server."
+      }
+    },
+    "failed_warm": {
+      "learning_id": "cb02b31ca37b40e1864baf3d993bd013",
+      "status": "failed",
+      "verdict": "error",
+      "created_at": "2026-09-13T06:30:44.655997+00:00",
+      "finished_at": "2026-09-13T06:43:00.380090+00:00",
+      "config": {
+        "mode": "team",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "max_iterations": 3,
+        "max_model_calls": 12,
+        "max_output_tokens": 6000,
+        "max_input_tokens": 180000,
+        "require_weave": false,
+        "memory_run_id": "4ff89dd433644fd7b44d1902c9aee6b6"
+      },
+      "usage": {
+        "calls": 2,
+        "input_tokens": 64822,
+        "output_tokens": 891,
+        "cached_input_tokens": 0,
+        "elapsed_ms": 197248.86901699938,
+        "complete": true
+      },
+      "memory_hash": "05050000e7e930f880ca534cf368f670ceede81c78823da4b1ad0a33cb21dee6",
+      "memory_frozen_at": "2026-09-13T06:41:40.150325+00:00",
+      "transfer_source_revealed_at": "2026-09-13T06:41:40.240540+00:00",
+      "memory_entries": 1,
+      "challenger_calls": 0,
+      "revalidated_entries": 1,
+      "cases": [
+        {
+          "case_id": "deferred_read",
+          "partition": "training",
+          "status": "completed",
+          "original_source_hash": "7e2c7c20b7716e95180d3eb5de25b9f1f456f38474117e93df2dfdbccfaafc81",
+          "initial_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "7e2c7c20b7716e95180d3eb5de25b9f1f456f38474117e93df2dfdbccfaafc81",
+            "errors": []
+          },
+          "initial_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "7e2c7c20b7716e95180d3eb5de25b9f1f456f38474117e93df2dfdbccfaafc81",
+            "errors": []
+          },
+          "initial_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": false,
+              "expected_names": [
+                "Mira Chen",
+                "Noah Patel"
+              ],
+              "observed_requests": [
+                {
+                  "method": "POST",
+                  "payload": {
+                    "display_name": "Noah Patel"
+                  },
+                  "accepted": true
+                },
+                {
+                  "method": "POST",
+                  "payload": {
+                    "display_name": "Noah Patel"
+                  },
+                  "accepted": true
+                }
+              ],
+              "failed_gates": [
+                "persistence.requests"
+              ],
+              "errors": []
+            }
+          ],
+          "model_generated_proposals": [],
+          "accepted_repairs": 1,
+          "final_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "5e4665b21641dfb96a653b248ef711b5126098dfd8d052b28f033433fedc2ff8",
+            "errors": []
+          },
+          "final_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "5e4665b21641dfb96a653b248ef711b5126098dfd8d052b28f033433fedc2ff8",
+            "errors": []
+          },
+          "final_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": true,
+              "errors": []
+            }
+          ],
+          "errors": []
+        },
+        {
+          "case_id": "busy_drop",
+          "partition": "training",
+          "status": "completed",
+          "original_source_hash": "3bbd4be53678147832ec1bb8822cc1137a5dbcb479f0d89ef36ce8b1088b4c48",
+          "initial_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "3bbd4be53678147832ec1bb8822cc1137a5dbcb479f0d89ef36ce8b1088b4c48",
+            "errors": []
+          },
+          "initial_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "3bbd4be53678147832ec1bb8822cc1137a5dbcb479f0d89ef36ce8b1088b4c48",
+            "errors": []
+          },
+          "initial_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": false,
+              "expected_names": [
+                "Mira Chen",
+                "Noah Patel"
+              ],
+              "observed_requests": [
+                {
+                  "method": "POST",
+                  "payload": {
+                    "display_name": "Mira Chen"
+                  },
+                  "accepted": true
+                }
+              ],
+              "failed_gates": [
+                "persistence.requests",
+                "persistence.stored_name"
+              ],
+              "errors": []
+            }
+          ],
+          "model_generated_proposals": [],
+          "accepted_repairs": 1,
+          "final_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": true,
+              "errors": []
+            }
+          ],
+          "errors": []
+        },
+        {
+          "case_id": "trailing_debounce",
+          "partition": "transfer",
+          "status": "failed",
+          "original_source_hash": "bae2e34fb07236295f70590727e063007c1ca26714842fae85490c6d90ddd651",
+          "initial_development": null,
+          "initial_holdout": null,
+          "initial_memory": [],
+          "model_generated_proposals": [],
+          "accepted_repairs": 0,
+          "final_development": null,
+          "final_holdout": null,
+          "final_memory": [],
+          "errors": []
+        }
+      ],
+      "errors": [
+        "RuntimeError: Fixed-suite infrastructure error: modal_done: TimeoutError: "
+      ],
+      "weave": {
+        "enabled": false,
+        "project": "keyproof",
+        "url": null,
+        "evaluation_url": null,
+        "error": "No W&B credentials are visible to this process. Run `uv run keyproof login` under the same Linux account, then reconnect. A key exported in another terminal is not inherited by this server."
+      }
+    },
+    "warm": {
+      "learning_id": "0ea54009e48f40edb0204d31bb2a6ce9",
+      "status": "completed",
+      "verdict": "transfer_verified",
+      "created_at": "2026-09-13T07:03:55.132428+00:00",
+      "finished_at": "2026-09-13T07:10:43.999528+00:00",
+      "config": {
+        "mode": "team",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "max_iterations": 3,
+        "max_model_calls": 12,
+        "max_output_tokens": 6000,
+        "max_input_tokens": 180000,
+        "require_weave": false,
+        "memory_run_id": "4ff89dd433644fd7b44d1902c9aee6b6"
+      },
+      "usage": {
+        "calls": 3,
+        "input_tokens": 100754,
+        "output_tokens": 1107,
+        "cached_input_tokens": 7808,
+        "elapsed_ms": 122917.42086398881,
+        "complete": true
+      },
+      "memory_hash": "05050000e7e930f880ca534cf368f670ceede81c78823da4b1ad0a33cb21dee6",
+      "memory_frozen_at": "2026-09-13T07:08:13.582829+00:00",
+      "transfer_source_revealed_at": "2026-09-13T07:08:13.687852+00:00",
+      "memory_entries": 1,
+      "challenger_calls": 0,
+      "revalidated_entries": 1,
+      "cases": [
+        {
+          "case_id": "deferred_read",
+          "partition": "training",
+          "status": "completed",
+          "original_source_hash": "7e2c7c20b7716e95180d3eb5de25b9f1f456f38474117e93df2dfdbccfaafc81",
+          "initial_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "7e2c7c20b7716e95180d3eb5de25b9f1f456f38474117e93df2dfdbccfaafc81",
+            "errors": []
+          },
+          "initial_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "7e2c7c20b7716e95180d3eb5de25b9f1f456f38474117e93df2dfdbccfaafc81",
+            "errors": []
+          },
+          "initial_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": false,
+              "expected_names": [
+                "Mira Chen",
+                "Noah Patel"
+              ],
+              "observed_requests": [
+                {
+                  "method": "POST",
+                  "payload": {
+                    "display_name": "Noah Patel"
+                  },
+                  "accepted": true
+                },
+                {
+                  "method": "POST",
+                  "payload": {
+                    "display_name": "Noah Patel"
+                  },
+                  "accepted": true
+                }
+              ],
+              "failed_gates": [
+                "persistence.requests"
+              ],
+              "errors": []
+            }
+          ],
+          "model_generated_proposals": [],
+          "accepted_repairs": 1,
+          "final_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": true,
+              "errors": []
+            }
+          ],
+          "errors": []
+        },
+        {
+          "case_id": "busy_drop",
+          "partition": "training",
+          "status": "completed",
+          "original_source_hash": "3bbd4be53678147832ec1bb8822cc1137a5dbcb479f0d89ef36ce8b1088b4c48",
+          "initial_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "3bbd4be53678147832ec1bb8822cc1137a5dbcb479f0d89ef36ce8b1088b4c48",
+            "errors": []
+          },
+          "initial_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "3bbd4be53678147832ec1bb8822cc1137a5dbcb479f0d89ef36ce8b1088b4c48",
+            "errors": []
+          },
+          "initial_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": false,
+              "expected_names": [
+                "Mira Chen",
+                "Noah Patel"
+              ],
+              "observed_requests": [
+                {
+                  "method": "POST",
+                  "payload": {
+                    "display_name": "Mira Chen"
+                  },
+                  "accepted": true
+                }
+              ],
+              "failed_gates": [
+                "persistence.requests",
+                "persistence.stored_name"
+              ],
+              "errors": []
+            }
+          ],
+          "model_generated_proposals": [],
+          "accepted_repairs": 1,
+          "final_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": true,
+              "errors": []
+            }
+          ],
+          "errors": []
+        },
+        {
+          "case_id": "trailing_debounce",
+          "partition": "transfer",
+          "status": "completed",
+          "original_source_hash": "bae2e34fb07236295f70590727e063007c1ca26714842fae85490c6d90ddd651",
+          "initial_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "bae2e34fb07236295f70590727e063007c1ca26714842fae85490c6d90ddd651",
+            "errors": []
+          },
+          "initial_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "bae2e34fb07236295f70590727e063007c1ca26714842fae85490c6d90ddd651",
+            "errors": []
+          },
+          "initial_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": false,
+              "expected_names": [
+                "Mira Chen",
+                "Noah Patel"
+              ],
+              "observed_requests": [
+                {
+                  "method": "POST",
+                  "payload": {
+                    "display_name": "Noah Patel"
+                  },
+                  "accepted": true
+                }
+              ],
+              "failed_gates": [
+                "persistence.requests"
+              ],
+              "errors": []
+            }
+          ],
+          "model_generated_proposals": [],
+          "accepted_repairs": 1,
+          "final_development": {
+            "passed": true,
+            "passed_gates": 51,
+            "total_gates": 51,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_holdout": {
+            "passed": true,
+            "passed_gates": 63,
+            "total_gates": 63,
+            "source_hash": "af19f18923154d23020458166b3f82a205a1e04ed34a060fde65606d87099c5c",
+            "errors": []
+          },
+          "final_memory": [
+            {
+              "probe_hash": "65ea45fe5796844a9ae2859ddda15b5abcf1f3a9dab4267cb382ea2ddfebcf03",
+              "passed": true,
+              "errors": []
+            }
+          ],
+          "errors": []
+        }
+      ],
+      "errors": [],
+      "weave": {
+        "enabled": false,
+        "project": "keyproof",
+        "url": null,
+        "evaluation_url": null,
+        "error": "No W&B credentials are visible to this process. Run `uv run keyproof login` under the same Linux account, then reconnect. A key exported in another terminal is not inherited by this server."
+      }
+    }
+  },
+  "archives": {
+    "cold": {
+      "file": "evidence/learning-cold.json.gz",
+      "bytes": 100986,
+      "sha256": "ee786007e166ae030b1732a1cbe68db2733e71f1a66d3d2f9887025a6a4e9c11"
+    },
+    "failed_warm": {
+      "file": "evidence/learning-failed-warm.json.gz",
+      "bytes": 74608,
+      "sha256": "4d412ab8d433946af9fa58cf1fc5c3161a286c7bff34d8ddf845dbc0cbc3cf5c"
+    },
+    "warm": {
+      "file": "evidence/learning-warm.json.gz",
+      "bytes": 102637,
+      "sha256": "e19bc049eca0574986dfeef00f3fa23978faf38e2ca5bbae1cf545aacf7d1471"
+    }
+  },
+  "weave_sdk_verification": {
+    "cloud_published": false,
+    "mode": "actual Weave Dataset/Evaluation with tracing disabled",
+    "learning_id": "4ff89dd433644fd7b44d1902c9aee6b6",
+    "memory_hash": "05050000e7e930f880ca534cf368f670ceede81c78823da4b1ad0a33cb21dee6",
+    "dataset_rows": 3,
+    "evaluations": {
+      "before": {
+        "summary": {
+          "output": {
+            "passed": {
+              "true_count": 0,
+              "true_fraction": 0
+            },
+            "elapsed_ms": {
+              "mean": 6042.73
+            }
+          },
+          "learned_keyboard_contract": {
+            "all_contracts_pass": {
+              "true_count": 0,
+              "true_fraction": 0
+            },
+            "counterexample_detected": {
+              "true_count": 3,
+              "true_fraction": 1
+            },
+            "execution_valid": {
+              "true_count": 3,
+              "true_fraction": 1
+            },
+            "failed_contracts": {
+              "mean": 1.3333333333333333
+            }
+          },
+          "model_latency": {
+            "mean": 12.128704309463501
+          }
+        },
+        "call_id": null,
+        "passed_rows": 0,
+        "detected_cases": [
+          "busy_drop",
+          "deferred_read",
+          "trailing_debounce"
+        ]
+      },
+      "after": {
+        "summary": {
+          "output": {
+            "passed": {
+              "true_count": 3,
+              "true_fraction": 1
+            },
+            "elapsed_ms": {
+              "mean": 6006.006666666667
+            }
+          },
+          "learned_keyboard_contract": {
+            "all_contracts_pass": {
+              "true_count": 3,
+              "true_fraction": 1
+            },
+            "counterexample_detected": {
+              "true_count": 0,
+              "true_fraction": 0
+            },
+            "execution_valid": {
+              "true_count": 3,
+              "true_fraction": 1
+            },
+            "failed_contracts": {
+              "mean": 0
+            }
+          },
+          "model_latency": {
+            "mean": 12.021554311116537
+          }
+        },
+        "call_id": null,
+        "passed_rows": 3,
+        "detected_cases": []
+      }
+    },
+    "dataset_reference": null
+  },
+  "verification": {
+    "tests_passed": 39,
+    "pytest_elapsed_seconds": 101.39,
+    "ruff_check": "passed",
+    "ruff_format_check": "passed",
+    "wheel_and_sdist": "built",
+    "ci": "https://github.com/mottopanikeiku/keyboard-contract-repair/actions/runs/34744286572",
+    "polling": {
+      "same_two_record_history_bytes_before": 3880988,
+      "same_two_record_history_bytes_after": 1460,
+      "unchanged_completed_record_observation_ms": 5600,
+      "summary_requests": 2,
+      "full_detail_requests": 0
+    },
+    "browser": "Real UI form launch, retained evidence, source-bound PNG and JSON downloads exercised; no candidate iframe.",
+    "visual_evidence": "evidence/learning-proof.png",
+    "published_archive_replay": "Cold and warm gzip archives restored as LearningRun records; memory admission revalidated. Real browser replay rejected each saved transfer-before source and passed each saved transfer-after source. No model calls."
+  },
+  "reproduce": {
+    "fresh_learning": "uv run keyproof learn --model gpt-5.6-sol --local-only",
+    "exact_saved_probe_api": "keyproof.probes.evaluate_probe(source, ProbePlan.model_validate(plan))",
+    "archives": "gzip-compressed complete LearningRun JSON; only local artifact-path metadata is omitted.",
+    "note": "Fresh model generation can differ. Cloud delivery is NOT verified; Weave SDK replay ran with tracing disabled."
+  }
+}
