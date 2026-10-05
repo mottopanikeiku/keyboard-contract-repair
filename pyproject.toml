@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "keyproof"
 version = "0.1.0"
-description = "Keyboard contract repair with independent browser verification and Weave evidence"
+description = "Repair keyboard save and focus bugs on a synthetic page with independent Chromium checks"
 requires-python = ">=3.12"
 classifiers = ["Operating System :: POSIX :: Linux"]
 dependencies = [
