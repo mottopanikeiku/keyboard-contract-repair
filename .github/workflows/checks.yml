@@ -25,6 +25,6 @@ jobs:
           uv run playwright install --with-deps chromium
       - run: uv run ruff check src tests
       - run: uv run ruff format --check src tests
-      - run: node --check src/keyproof/web/app.js
+      - run: node --check src/keyproof/web/app.js && node --check src/keyproof/web/learning.js
       - run: uv run pytest
       - run: uv build
