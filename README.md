@@ -31,7 +31,9 @@ nice -n 19 uv run playwright install chromium
 nice -n 19 env WEAVE_DISABLED=true uv run pytest -q -x
 ```
 
-This replays behavior, not model generation. The new [recorded-candidate tests](tests/test_recorded_comparison.py) rerun the published original and repairs, then extend each repair with rapid Enter/Space saves followed by an unsaved edit. [Local replay details](docs/REPLAY.md) record the command, environment, and observed result. No new model calls were made for this change.
+This replays behavior, not model generation. The [recorded-candidate tests](tests/test_recorded_comparison.py) rerun the published original and repairs, then extend each repair with rapid Enter/Space saves followed by an unsaved edit; [local replay details](docs/REPLAY.md) record one such run. Without bubblewrap, every browser test fails with an explicit error instead of running Chromium unisolated; the patch, probe-language, rendering and assessment tests still run.
+
+`uv run keyproof check` runs the oracle on the shipped fixture, and `uv run keyproof serve` opens the local evidence dashboard at <http://127.0.0.1:8765>. `run`, `compare` and `learn` call a model provider; see `uv run keyproof --help`.
 
 ## Limitations
 

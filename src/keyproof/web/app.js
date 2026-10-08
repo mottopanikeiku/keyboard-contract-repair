@@ -42,6 +42,8 @@
     const node = document.createElement(tag);
     if (className) node.className = className;
     if (text !== undefined) node.textContent = String(text);
+    // Overflowing evidence must scroll from the keyboard (axe: scrollable-region-focusable).
+    if (tag === "pre" || className === "table-scroll") node.tabIndex = 0;
     return node;
   }
 

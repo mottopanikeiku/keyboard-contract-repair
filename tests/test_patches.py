@@ -63,3 +63,39 @@ def test_holdout_never_drives_acceptance():
     candidate.phase = "holdout"
     accepted, _ = acceptance(report(save=False), candidate)
     assert not accepted
+
+
+@pytest.mark.parametrize(
+    "edits",
+    [
+        pytest.param([("missing", "fixed")], id="unmatched"),
+        pytest.param([("alpha", "alpha")], id="no-op"),
+    ],
+)
+def test_unusable_edits_are_rejected(edits):
+    with pytest.raises(PatchRejected):
+        apply_patch("alpha; beta;", patch(*edits))
+
+
+def test_candidate_evaluation_errors_are_rolled_back():
+    candidate = report(save=True, focus=True)
+    candidate.errors = ["keyboard: TimeoutError"]
+    accepted, _ = acceptance(report(save=False, focus=True), candidate)
+    assert not accepted
+
+
+def test_new_axe_violation_blocks_an_otherwise_better_candidate():
+    candidate = report(save=True, focus=True)
+    candidate.axe_violations = ["keyboard: color-contrast"]
+    accepted, _ = acceptance(report(save=False, focus=True), candidate)
+    assert not accepted
+
+
+def test_unchanged_failure_count_is_not_progress():
+    accepted, _ = acceptance(report(save=False, focus=True), report(save=False, focus=True))
+    assert not accepted
+
+
+def test_renamed_gate_cannot_replace_a_failing_one():
+    accepted, _ = acceptance(report(save=False, focus=True), report(renamed=True, focus=True))
+    assert not accepted
